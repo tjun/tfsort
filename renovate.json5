@@ -5,7 +5,7 @@
   // Renovate preset configuration recommendations
   "extends": [
     "config:best-practices",
-    ":groupAllNonMajor",          // Group all non-major updates into a single PR
+    "group:allNonMajor",          // Group all non-major updates into a single PR
     ":prHourlyLimit2",            // Limit to maximum 2 PRs per hour
     ":prConcurrentLimit5"         // Limit to maximum 5 concurrent PRs
   ],
