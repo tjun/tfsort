@@ -57,6 +57,15 @@ func GetFlags() []cli.Flag {
 func TfsortAction(c *cli.Context) error {
 	// Extract arguments and flags from the context
 	args := c.Args().Slice() // Use Slice() to get a []string
+
+	// Check if any positional argument looks like a flag
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			// Return a specific error message guiding the user
+			return cli.Exit(fmt.Sprintf("Error: Flag '%s' found after file arguments. Please place flags before file arguments.", arg), 1) // Exit code 1 for usage error
+		}
+	}
+
 	recursive := c.Bool("recursive")
 
 	// Call the processing function with extracted values
