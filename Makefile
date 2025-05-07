@@ -9,6 +9,14 @@ CMD_PATH=./cmd/$(BINARY_NAME)
 OUTPUT_DIR=./bin
 VERSION_PKG=main # Package where version variables are defined (e.g., main)
 
+# Installation directory for golangci-lint, defaults to $(OUTPUT_DIR) (./bin)
+# To override: make install-lint GOLANGCI_LINT_INSTALL_DIR=/path/to/dir
+GOLANGCI_LINT_INSTALL_DIR ?= $(OUTPUT_DIR)
+GOLANGCI_LINT = $(GOLANGCI_LINT_INSTALL_DIR)/golangci-lint
+
+# Default version for golangci-lint, can be overridden (e.g., make install-lint GOLANGCI_LINT_VERSION=v1.58.1)
+GOLANGCI_LINT_VERSION ?= v2.1.6
+
 # Version information (attempt to get from Git, fallback for non-Git environments)
 GIT_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -21,10 +29,11 @@ LDFLAGS = -s -w \
           -X $(VERSION_PKG).date=$(BUILD_DATE)
 
 # Lint parameters
-LINT_CMD=golangci-lint
+# LINT_CMD is now defined by the target GOLANGCI_LINT
 LINT_FLAGS=run
 
-.PHONY: all test build clean lint help release
+.PHONY: all test build clean lint help release install-lint
+.DEFAULT_GOAL := help
 
 all: test build
 
@@ -46,10 +55,26 @@ clean:
 	$(GOCLEAN)
 	@rm -rf $(OUTPUT_DIR)
 
-# Run linter
-lint:
+# Run linter using the locally installed golangci-lint
+# Depends on the $(GOLANGCI_LINT) file target to ensure it's installed.
+lint: $(GOLANGCI_LINT)
 	@echo "Running linter..."
-	$(LINT_CMD) $(LINT_FLAGS) ./...
+	$(GOLANGCI_LINT) $(LINT_FLAGS) ./...
+
+# Rule to install golangci-lint if it doesn't exist or if forced by make install-lint
+# Usage: make install-lint [GOLANGCI_LINT_VERSION=vx.y.z]
+# If GOLANGCI_LINT_VERSION is not set, it installs the version specified by the script (usually latest stable).
+$(GOLANGCI_LINT):
+	@echo "Installing golangci-lint to $(GOLANGCI_LINT_INSTALL_DIR)..."
+	@echo "(Version: $(or $(GOLANGCI_LINT_VERSION), 'latest stable (script default)'))"
+	@mkdir -p $(GOLANGCI_LINT_INSTALL_DIR)
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOLANGCI_LINT_INSTALL_DIR) $(GOLANGCI_LINT_VERSION)
+	@echo "golangci-lint installed successfully in $(GOLANGCI_LINT_INSTALL_DIR)/."
+
+# Explicit target to force re-installation or install a specific version
+install-lint: $(GOLANGCI_LINT)
+	@echo "Ensuring golangci-lint version $(or $(GOLANGCI_LINT_VERSION), 'latest') is installed in $(GOLANGCI_LINT_INSTALL_DIR). Run \`make clean\` first to force re-download."
+	# The dependency $(GOLANGCI_LINT) handles the actual installation if missing.
 
 # Release builds for common platforms
 release: clean # Clean before release build
@@ -67,11 +92,12 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  test        Run tests"
-	@echo "  build       Build the application binary for the current system"
-	@echo "  release     Build release binaries for multiple platforms"
-	@echo "  lint        Run linter (golangci-lint)"
-	@echo "  clean       Remove build artifacts"
-	@echo "  all         Run test and build"
-	@echo "  help        Show this help message"
+	@echo "  test         Run tests"
+	@echo "  build        Build the application binary for the current system"
+	@echo "  release      Build release binaries for multiple platforms"
+	@echo "  lint         Run linter (installs golangci-lint to $(GOLANGCI_LINT_INSTALL_DIR) if needed)"
+	@echo "  install-lint Install/ensure golangci-lint is installed locally (e.g., make install-lint GOLANGCI_LINT_VERSION=v1.58.1)"
+	@echo "  clean        Remove build artifacts (including locally installed tools)"
+	@echo "  all          Run test and build"
+	@echo "  help         Show this help message"
 	@echo ""

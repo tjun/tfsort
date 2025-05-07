@@ -23,7 +23,9 @@ func setupTestFiles(t *testing.T, structure map[string]string) (string, func()) 
 	}
 
 	cleanup := func() {
-		os.RemoveAll(tmpDir)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Errorf("Failed to remove temp dir %s: %v", tmpDir, err)
+		}
 	}
 
 	for path, content := range structure {
@@ -215,8 +217,8 @@ func TestProcessInputs(t *testing.T) {
 			}
 
 			// Mock Stdin if needed
-			var originalStdin *os.File = os.Stdin // Store original Stdin
-			simulatedIsPipe := false              // Assume no pipe unless stdin is mocked
+			originalStdin := os.Stdin // Store original Stdin (type inferred)
+			simulatedIsPipe := false  // Assume no pipe unless stdin is mocked
 
 			if tc.mockStdin != "" {
 				simulatedIsPipe = true // Mark that we intend to simulate a pipe
@@ -224,13 +226,22 @@ func TestProcessInputs(t *testing.T) {
 				r, w, _ := os.Pipe()
 				os.Stdin = r
 				go func() {
-					defer w.Close()
+					defer func() {
+						if err := w.Close(); err != nil {
+							t.Errorf("error closing write pipe in test setup: %v", err)
+						}
+					}()
 					_, err := w.Write(content)
 					if err != nil {
 						t.Errorf("error writing to stdin pipe in test setup: %v", err)
 					}
 				}()
-				defer func() { os.Stdin = originalStdin; r.Close() }() // Restore and close read pipe
+				defer func() {
+					os.Stdin = originalStdin // Restore Stdin first
+					if err := r.Close(); err != nil {
+						t.Errorf("error closing read pipe in test setup: %v", err)
+					}
+				}() // Restore and close read pipe
 			} else {
 				simulatedIsPipe = false
 			}
@@ -417,22 +428,31 @@ func TestTfsortActionOutputModes(t *testing.T) {
 			}
 
 			// Mock Stdin if needed
-			var originalStdin *os.File
+			var originalStdin *os.File // Keep var declaration here if assigned in if block
 			simulatedIsPipe := false
 
 			if tc.mockStdin != "" {
 				simulatedIsPipe = true
-				originalStdin = os.Stdin
+				originalStdin = os.Stdin // Assign here
 				r, w, _ := os.Pipe()
 				os.Stdin = r
 				go func() {
-					defer w.Close()
+					defer func() {
+						if err := w.Close(); err != nil {
+							t.Errorf("error closing write pipe in test setup: %v", err)
+						}
+					}()
 					_, err := w.Write([]byte(tc.mockStdin))
 					if err != nil {
 						t.Errorf("error writing to stdin pipe in test setup: %v", err)
 					}
 				}()
-				defer func() { os.Stdin = originalStdin; r.Close() }()
+				defer func() {
+					os.Stdin = originalStdin // Restore Stdin first
+					if err := r.Close(); err != nil {
+						t.Errorf("error closing read pipe in test setup: %v", err)
+					}
+				}()
 			} else {
 				simulatedIsPipe = false
 			}
