@@ -33,7 +33,7 @@
       "matchManagers": ["gomod"],
       "matchPackageNames": ["go"], // Target Go language itself
       "groupName": "Go version",    // Group name for Go version updates
-      "schedule": ["weekly"]
+      "schedule": ["* * * * 0,6"]
     },
     // Group and schedule GitHub Actions updates
     {
