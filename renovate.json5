@@ -1,0 +1,71 @@
+// renovate.json5
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+
+  // Renovate preset configuration recommendations
+  "extends": [
+    "config:best-practices",
+    ":groupAllNonMajor",          // Group all non-major updates into a single PR
+    ":prHourlyLimit2",            // Limit to maximum 2 PRs per hour
+    ":prConcurrentLimit5"         // Limit to maximum 5 concurrent PRs
+  ],
+
+  // PR creation schedule (Japan work hours)
+  "timezone": "Asia/Tokyo",
+  "schedule": ["after 09:00 and before 18:00 on Monday to Friday"],
+
+  // Enable Dependency Dashboard issue
+  "dependencyDashboard": true,
+
+  // Default settings for PRs/Issues
+  "assignees": ["tjun"],
+  "reviewers": ["tjun"],
+  "labels": ["dependencies"],
+
+  // Enable semantic commits (e.g., for use with semantic-release)
+  "semanticCommits": "enabled",
+
+  // ---- Package Rules ----
+  "packageRules": [
+    // Go version management
+    {
+      "description": "Manage Go version in go.mod",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go"], // Target Go language itself
+      "groupName": "Go version",    // Group name for Go version updates
+      "schedule": ["weekly"]
+    },
+    // Group and schedule GitHub Actions updates
+    {
+      "description": "Group GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions dependencies",
+      "extends": ["schedule:weekly"]
+    },
+    // Automerge minor and patch updates
+    {
+      "description": "Automerge minor and patch updates",
+      "minimumReleaseAge": "7 days",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    // Schedule for Go Modules (excluding Go itself)
+    {
+      "description": "Go modules weekly schedule",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["!go"], // Exclude Go itself from this rule
+      "extends": ["schedule:weekly"]
+    },
+    // Run lock file maintenance (e.g., go.sum tidy) late at night
+    {
+      "description": "Lock file maintenance",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "schedule": ["before 3am on Sunday"],
+      "commitMessageTopic": "go.mod tidy"
+    }
+  ],
+
+  // Recreate PRs even if they were closed manually
+  "recreateClosed": true
+}
