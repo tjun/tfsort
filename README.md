@@ -2,6 +2,8 @@
 
 **An opinionated sorter for Terraform configuration files.**
 
+> **Warning:** This tool is currently under development and is **not yet recommended for production use**. Use at your own risk, and always review changes before applying them, especially when using the `--in-place` flag.
+
 `tfsort` is a command-line tool written in Go that enforces a predictable order in your Terraform `.tf` files. It sorts:
 
 *   top-level blocks (e.g. `terraform`, `provider`, `variable`, `locals`, `data`, `resource`, `module`, `output`) based on a predefined order.
@@ -150,7 +152,7 @@ security_group_rules = [
 
 ---
 
-### Ignoring List Sorting
+## Ignoring List Sorting
 
 To prevent a specific list attribute from being sorted, place a `// tfsort:ignore` comment immediately after the opening square bracket `[` of the list. The comment can be on the same line as the bracket or on the immediately following line, before any list elements.
 
@@ -185,9 +187,9 @@ To prevent a specific list attribute from being sorted, place a `// tfsort:ignor
 
 Lists that do not have this specific comment pattern will be sorted.
 
-### Examples of Sorting
+---
 
-#### Basic Usage
+## Command Examples
 
 Sort a single file and print the result to stdout:
 ```bash
@@ -204,81 +206,33 @@ Check if any files in the `modules/vpc` directory would be changed by sorting, a
 tfsort --dry-run modules/vpc
 ```
 
-#### Sorting Top-Level Blocks
-
-`tfsort` orders top-level blocks like `provider`, `variable`, `locals`, `data`, `resource`, and `output` according to a standard convention.
-
-**Before:**
-```hcl
-resource "aws_instance" "web" {
-  ami           = "ami-0c55b31ad29f50665"
-  instance_type = "t2.micro"
-}
-
-variable "region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-west-2"
-}
-
-provider "aws" {
-  region = var.region
-}
-
-output "instance_ip" {
-  value = aws_instance.web.public_ip
-}
+Sort from stdin and write to stdout:
+```bash
+cat main.tf | tfsort
 ```
 
-**After `tfsort`:**
-```hcl
-provider "aws" {
-  region = var.region
-}
+---
 
-variable "region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-west-2"
-}
+## Exit codes
 
-resource "aws_instance" "web" {
-  ami           = "ami-0c55b31ad29f50665"
-  instance_type = "t2.micro"
-}
+| Code | Meaning                                                                                                                                                           |
+|------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0    | Success. Files were already sorted, or `--in-place` was used and changes were successfully applied.                                                              |
+| 1    | Changes were detected or applied. This includes `--dry-run` detecting changes, or if the default behavior (writing to stdout) resulted in modified content.      |
+| 2    | Error during processing (e.g., parsing error, file I/O error).                                                                                                    |
 
-output "instance_ip" {
-  value = aws_instance.web.public_ip
-}
-```
+---
 
-#### Sorting Resource and Data Blocks by Type and Name
+## Contributing
 
-`resource` and `data` blocks are sorted first by their type (e.g., `aws_iam_role` before `aws_s3_bucket`) and then by their name lexicographically.
+Bug reports and pull requests are welcome! Please open an issue first if you plan a large change.
 
-**Before:**
-```hcl
-resource "aws_s3_bucket" "config_storage" {
-  bucket = "my-config-storage-bucket"
-}
+1.  Fork the repo and create your branch: `git checkout -b feature/xyz`
+2.  Run `make test` and ensure the linter passes (`make lint`)
+3.  Submit a PR describing your changes
 
-resource "aws_iam_role" "app_role" {
-  name = "my_application_role"
-  assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [{
-      Action    = "sts:AssumeRole"
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-    }]
-  })
-}
+---
 
-data "aws_caller_identity" "current" {}
+## License
 
-resource "aws_s3_bucket" "asset_storage" {
-  bucket = "my-asset-storage-bucket"
-}
-```
-
-**After `
+`tfsort` is released under the [MIT License](LICENSE).
