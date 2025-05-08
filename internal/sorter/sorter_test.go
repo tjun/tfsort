@@ -313,7 +313,7 @@ resource "b" "r2" {} // Should be sorted after 'a'
 resource "c" "r3" {} // Should be sorted after 'b'
 `,
 			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
-			skipClean:   true, // Compare raw output
+			skipClean:   false,
 		},
 		{
 			name: "ignore_directive_only_affects_its_block_(other_block_lists_sorted)",
@@ -335,7 +335,7 @@ resource "b" "r2" {
   list = [
     // tfsort:ignore
     "z",
-    "a"
+    "a",
   ]
 }
 
@@ -365,7 +365,7 @@ resource "b" "r2" {
   list = [
     // tfsort:ignore
     "z",
-    "a"
+    "a",
   ]
 }
 
@@ -376,7 +376,7 @@ resource "c" "r3" { // sort me, sort my list, but not my other attrs
 }
 `,
 			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
-			skipClean:   true, // Compare raw output
+			skipClean:   false,
 		},
 
 		// --- Empty/No-op (Still relevant) ---
@@ -435,9 +435,9 @@ resource "aws_security_group" "allow_common_ports" {
   }
 
   security_group_rules = [
-	  "http-80-tcp",
+    "http-80-tcp",
     1024,
-		{ type = "ingress", from_port = 22, to_port = 22, protocol = "tcp", cidr_blocks = ["10.0.0.0/8"] },
+    { type = "ingress", from_port = 22, to_port = 22, protocol = "tcp", cidr_blocks = ["10.0.0.0/8"] },
     "ssh-22-tcp",
   ]
 
@@ -470,8 +470,8 @@ resource "aws_security_group" "allow_common_ports" {
     1024,
     "http-80-tcp",
     "ssh-22-tcp",
-    { type = "ingress", from_port = 22, to_port = 22, protocol = "tcp", cidr_blocks = ["10.0.0.0/8"] }
-	]
+    { type = "ingress", from_port = 22, to_port = 22, protocol = "tcp", cidr_blocks = ["10.0.0.0/8"] },
+  ]
 
   tags = {
     Name = "common-ports-sg"
@@ -506,28 +506,25 @@ resource "aws_security_group" "allow_common_ports" {
 			}
 
 			// --- Call the Sort function ---
-			sortErr := Sort(hclFile, tc.sortOptions) // Renamed to sortErr
-
-			// --- Assertions for Sort error ---
-			if tc.wantErr {
-				// If we reached here, parsing must have succeeded.
-				// So, if wantErr is true, it must be for a Sort() error.
-				if sortErr == nil {
-					t.Errorf("Sort() error = nil, wantErr %v (expected a sort error, but got none)", tc.wantErr)
-				}
-				// If sortErr is not nil here, it means Sort() produced an error as expected.
-				return // Expected sort error, no need to compare output further
-			}
-
-			// If we are here, we did not expect any error (neither parsing nor sort)
-			// but if a sort error occurred, it's a failure.
-			if sortErr != nil { // Unexpected sort error
+			sortedFile, sortErr := Sort(hclFile, tc.sortOptions) // Receive both values
+			if sortErr != nil && !tc.wantErr {                   // Unexpected sort error
 				t.Errorf("Sort() unexpected error = %v", sortErr)
 				return
 			}
+			if sortErr == nil && tc.wantErr { // Expected sort error, but got none
+				t.Errorf("Sort() error = nil, wantErr %v (expected a sort error, but got none)", tc.wantErr)
+				return
+			}
+			if tc.wantErr { // Expected error occurred (either parse or sort)
+				return
+			}
+
+			if sortedFile == nil { // Should not happen if Sort succeeds without error
+				t.Fatal("Sort() returned nil file without error")
+			}
 
 			// --- Compare output ---
-			gotHCLBytes := hclFile.Bytes()
+			gotHCLBytes := sortedFile.Bytes() // Use the returned sortedFile
 			var gotCleanedHCL, wantCleanedHCL string
 
 			if tc.skipClean {

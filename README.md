@@ -150,6 +150,72 @@ security_group_rules = [
 
 *(Note: Attributes that are not lists (e.g., maps, simple string/number attributes) are not reordered based on their keys by `tfsort`. Their formatting might be normalized by the HCL writing library, but their relative order within a block is preserved.)*
 
+### Handling Comments and Blank Lines in Lists
+
+While `tfsort` sorts list elements, it's important to understand how comments and blank lines within the list are handled:
+
+*   **Leading Comments Stick to Elements:** Comments that appear immediately before an element (potentially separated by newlines or whitespace) are treated as "leading comments" associated with that element. When the list is sorted, these comments **move together with their associated element**.
+*   **Visual Grouping Not Preserved:** Blank lines or comments intended to visually separate groups of elements within a single list **are not treated as sorting boundaries**. The entire list's elements (excluding the grouping comments/blank lines themselves, which stick to the *next* element) are sorted together based on the element content. Any empty lines used for visual separation might be removed or altered during the formatting process.
+
+**Example:**
+
+Consider this input list structured with comments and blank lines:
+
+```hcl
+# Before tfsort:
+example_list = [
+  # Group A
+  "charlie",
+  "alpha",
+
+  # Group B
+  "bravo",
+]
+```
+
+After running `tfsort`, the elements will be sorted alphabetically, with comments moving with the element they precede, and the blank line likely removed:
+
+```hcl
+# After tfsort:
+example_list = [
+  # Group A
+  "alpha",
+  # Group B
+  "bravo",
+  # Group A
+  "charlie",
+]
+```
+Notice that `# Group B` moved with `"bravo"`, and the original grouping is lost due to the unified sort.
+
+**Workarounds for Preserving Groups/Order:**
+
+If you need to maintain specific groups of elements or a precise manual order within a list:
+
+1.  **Use `// tfsort:ignore`:** Add the `// tfsort:ignore` comment immediately after the opening bracket `[` to disable sorting for the entire list.
+2.  **Split the List:** Define multiple separate lists, potentially using local variables, and manage their contents independently. For example:
+
+    ```hcl
+    locals {
+      group_a = [
+        "charlie",
+        "alpha",
+      ]
+      group_b = [
+        "bravo",
+      ]
+    }
+
+    resource "something" "example" {
+      # Use concat or other functions as needed
+      combined_list = concat(local.group_a, local.group_b)
+      # Or use the groups separately
+      list_a = local.group_a
+      list_b = local.group_b
+    }
+    ```
+    In this case, `tfsort` would sort the elements within `local.group_a` and `local.group_b` individually, but the `concat` function would preserve the group order in `combined_list`.
+
 ---
 
 ## Ignoring List Sorting
