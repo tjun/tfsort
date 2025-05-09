@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/tjun/tfsort/internal/commands" // Import the new package
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 var (
@@ -16,9 +17,9 @@ var (
 	date    = "unknown"
 )
 
-// NewApp creates and configures the cli.App instance.
-func NewApp() *cli.App {
-	app := &cli.App{
+// NewApp creates and configures the cli.Command instance.
+func NewApp() *cli.Command {
+	cmd := &cli.Command{
 		Name:    "tfsort",
 		Usage:   "A fast, opinionated sorter for Terraform configuration files.",
 		Version: fmt.Sprintf("%s, commit %s, built at %s", version, commit, date),
@@ -29,13 +30,13 @@ func NewApp() *cli.App {
 		// The default help message (triggered by -h or --help) is still shown.
 		HideHelpCommand: true,
 	}
-	return app
+	return cmd
 }
 
 func main() {
 	// Create the app using NewApp and run it.
 	// If Run returns an error, log it fatally.
-	if err := NewApp().Run(os.Args); err != nil {
+	if err := NewApp().Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}
 }

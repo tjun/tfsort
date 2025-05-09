@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/tjun/tfsort/internal/parser"
 	"github.com/tjun/tfsort/internal/sorter"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // InputSource represents a single source of HCL content (file or stdin)
@@ -54,19 +55,20 @@ func GetFlags() []cli.Flag {
 }
 
 // TfsortAction defines the core action for the tfsort command.
-func TfsortAction(c *cli.Context) error {
+// v3 signature: func(context.Context, *cli.Command) error
+func TfsortAction(ctx context.Context, cmd *cli.Command) error {
 	// Extract arguments and flags from the context
-	args := c.Args().Slice() // Use Slice() to get a []string
+	args := cmd.Args().Slice() // Get Args from cmd
 
 	// Check if any positional argument looks like a flag
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
 			// Return a specific error message guiding the user
-			return cli.Exit(fmt.Sprintf("Error: Flag '%s' found after file arguments. Please place flags before file arguments.", arg), 1) // Exit code 1 for usage error
+			return cli.Exit(fmt.Sprintf("Error: Flag '%s' found after file arguments. Please place flags before file arguments.", arg), 1)
 		}
 	}
 
-	recursive := c.Bool("recursive")
+	recursive := cmd.Bool("recursive")
 
 	// Call the processing function with extracted values
 	sources, err := processInputs(args, recursive) // Renamed function
@@ -86,12 +88,12 @@ func TfsortAction(c *cli.Context) error {
 	hasErrors := false
 	changedInDryRun := false
 
-	inPlace := c.Bool("in-place")
-	dryRun := c.Bool("dry-run")
+	inPlace := cmd.Bool("in-place")
+	dryRun := cmd.Bool("dry-run")
 
 	sortOpts := sorter.SortOptions{
-		SortBlocks:   c.Bool("sort-blocks"),
-		SortTypeName: c.Bool("sort-type-name"),
+		SortBlocks:   cmd.Bool("sort-blocks"),
+		SortTypeName: cmd.Bool("sort-type-name"),
 	}
 
 	for _, source := range sources {

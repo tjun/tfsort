@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	"testing"
 
 	// urfave/cli is needed to construct the app for testing TfsortAction
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // setupTestFiles creates temporary files and directories for testing.
@@ -460,25 +461,24 @@ func TestTfsortActionOutputModes(t *testing.T) {
 
 			var actualExitCode int // Initialize to 0, will be set by actionErr handling
 			var actionErr error
+			var errOutput bytes.Buffer // Buffer for error output
 
 			// Create a new app instance for each test run to avoid state pollution
-			app := cli.NewApp()
-			app.Name = "tfsort-test-app"
-			app.Flags = GetFlags()
-			app.Action = TfsortAction
-
-			// Crucial: Prevent os.Exit during tests
-			// app.Run will still return the error that TfsortAction returns.
-			app.ExitErrHandler = func(context *cli.Context, err error) {
-				// Do nothing here; this prevents os.Exit.
-				// The error 'err' (which is what TfsortAction returned)
-				// will be returned by app.Run().
+			app := &cli.Command{
+				Name:      "tfsort-test-app",
+				Flags:     GetFlags(),
+				Action:    TfsortAction,
+				ErrWriter: &errOutput, // Set ErrWriter
+				ExitErrHandler: func(ctx context.Context, cmd *cli.Command, err error) {
+					// Prevent os.Exit during tests
+					// Errors will be returned by cmd.Run
+				},
 			}
 
-			// t.Logf("Adjusted args for app.Run: %v", adjustedArgs)
 			stdoutOutput := captureOutput(t, func() {
 				runArgs := append([]string{app.Name}, adjustedArgs...)
-				errReturnedByRun := app.Run(runArgs)
+
+				errReturnedByRun := app.Run(context.Background(), runArgs)
 				actionErr = errReturnedByRun
 			})
 
