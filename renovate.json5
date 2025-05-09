@@ -7,8 +7,9 @@
     "config:best-practices",
     "group:allNonMajor",          // Group all non-major updates into a single PR
     ":prHourlyLimit2",            // Limit to maximum 2 PRs per hour
-    ":prConcurrentLimit5"         // Limit to maximum 5 concurrent PRs
   ],
+
+  "prConcurrentLimit": 5,
 
   // PR creation schedule (Japan work hours)
   "timezone": "Asia/Tokyo",
