@@ -36,7 +36,7 @@ resource "google_service_account_iam_member" "app" {
   member             = "serviceAccount:test@example.com"
 }
 
-# for_each exmaple
+# for_each example
 resource "google_project_iam_member" "app_roles" {
   project = "my-project"
 
