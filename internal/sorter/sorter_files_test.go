@@ -11,9 +11,6 @@ import (
 	"github.com/tjun/tfsort/internal/parser"
 )
 
-// Removed update flag
-// var update = flag.Bool("update", false, "update want_*.tf files")
-
 func TestFiles(t *testing.T) {
 	testdataDir := "testdata"
 
