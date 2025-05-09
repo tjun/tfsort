@@ -66,6 +66,9 @@
       extends: [
         'schedule:weekly',
       ],
+      postUpdateOptions: [
+        'gomodTidy',
+      ],
     },
     {
       description: 'Lock file maintenance',
