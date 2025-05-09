@@ -112,15 +112,19 @@ func TfsortAction(c *cli.Context) error {
 		originalBytes := make([]byte, len(source.Content))
 		copy(originalBytes, source.Content)
 
-		if err := sorter.Sort(hclFile, sortOpts); err != nil {
+		// Call the modified Sort function which returns a new file object
+		sortedFile, err := sorter.Sort(hclFile, sortOpts)
+		if err != nil {
 			log.Printf("Error sorting %s: %v", source.Path, err)
 			hasErrors = true
 			continue
 		}
 
-		sortedBytes := hclFile.Bytes()
-
+		// If the returned file pointer is the same as the original, no changes were made.
+		// Otherwise, compare bytes for robustness (though pointer check should suffice if Sort guarantees it).
+		sortedBytes := sortedFile.Bytes()
 		changed := !bytes.Equal(originalBytes, sortedBytes)
+		// Alternative change detection: changed := sortedFile != hclFile (if Sort guarantees returning original on no change)
 
 		if dryRun {
 			if changed {
