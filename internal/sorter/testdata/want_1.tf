@@ -39,7 +39,7 @@ resource "google_project_iam_custom_role" "my_role" {
   ]
 }
 
-# for_each exmaple
+# for_each example
 resource "google_project_iam_member" "app_roles" {
   project = "my-project"
 
