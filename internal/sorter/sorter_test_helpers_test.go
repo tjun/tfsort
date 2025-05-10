@@ -26,6 +26,8 @@ func cleanHCL(hclBytes []byte) string {
            cleanedLines = append(cleanedLines, trimmedLine) // Use TrimSpace result directly
        }
    }
-   // Note: We removed the error check for scanner.Err() for simplicity in tests
+   if err := scanner.Err(); err != nil {
+       log.Printf("Error while scanning: %v", err)
+   }
    return strings.Join(cleanedLines, "\n")
 }
