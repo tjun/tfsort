@@ -31,18 +31,12 @@ This keeps your configuration organised, reduces noisy diffs, and makes code rev
 
 ### Using pre-built binaries (recommended)
 
-```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/tjun/tfsort/releases/latest/download/tfsort_darwin_arm64.tar.gz | tar -xz
-sudo mv tfsort /usr/local/bin/
-```
-
-Binaries for Linux, Windows and other architectures are available on the [releases page](https://github.com/tjun/tfsort/releases).
+Binaries for Mac, Linux are available on the [releases page](https://github.com/tjun/tfsort/releases).
 
 ### Using `go install`
 
 ```bash
-go install github.com/tjun/tfsort@latest
+go install github.com/tjun/tfsort/cmd/tfsort@latest
 ```
 
 > Go ≥ 1.22 are supported.
