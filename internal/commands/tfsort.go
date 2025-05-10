@@ -34,14 +34,14 @@ var flags = []cli.Flag{
 		Usage:   "Overwrite files in place instead of printing to stdout",
 	},
 	&cli.BoolFlag{
-		Name:  "sort-blocks",
-		Value: true,
-		Usage: "Enable sorting of top-level blocks",
+		Name:  "no-sort-blocks",
+		Value: false,
+		Usage: "Disable sorting of top-level blocks",
 	},
 	&cli.BoolFlag{
-		Name:  "sort-type-name",
-		Value: true,
-		Usage: "Enable sorting of `resource`/`data` **type** and **name**",
+		Name:  "no-sort-type-name",
+		Value: false,
+		Usage: "Disable sorting of `resource`/`data` **type** and **name**",
 	},
 	&cli.BoolFlag{
 		Name:  "dry-run",
@@ -92,8 +92,8 @@ func TfsortAction(ctx context.Context, cmd *cli.Command) error {
 	dryRun := cmd.Bool("dry-run")
 
 	sortOpts := sorter.SortOptions{
-		SortBlocks:   cmd.Bool("sort-blocks"),
-		SortTypeName: cmd.Bool("sort-type-name"),
+		SortBlocks:   !cmd.Bool("no-sort-blocks"),
+		SortTypeName: !cmd.Bool("no-sort-type-name"),
 	}
 
 	for _, source := range sources {
