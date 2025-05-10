@@ -16,13 +16,13 @@ func cleanHCL(hclBytes []byte) string {
 
    scanner := bufio.NewScanner(bytes.NewReader(normalizedBytes))
    var cleanedLines []string
-   // spaceRe := regexp.MustCompile(`\s+`) // Removed intra-line whitespace collapsing
+   
 
    for scanner.Scan() {
        line := scanner.Text()
        trimmedLine := strings.TrimSpace(line)
        if trimmedLine != "" {
-           // collapsedLine := spaceRe.ReplaceAllString(trimmedLine, " ") // Removed
+           
            cleanedLines = append(cleanedLines, trimmedLine) // Use TrimSpace result directly
        }
    }
