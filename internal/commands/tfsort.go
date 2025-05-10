@@ -44,6 +44,11 @@ var flags = []cli.Flag{
 		Usage: "Disable sorting of `resource`/`data` **type** and **name**",
 	},
 	&cli.BoolFlag{
+		Name:  "no-sort-list",
+		Value: false,
+		Usage: "Disable sorting of list attribute values",
+	},
+	&cli.BoolFlag{
 		Name:  "dry-run",
 		Usage: "Exit with non-zero status if changes would be made",
 	},
@@ -94,6 +99,7 @@ func TfsortAction(ctx context.Context, cmd *cli.Command) error {
 	sortOpts := sorter.SortOptions{
 		SortBlocks:   !cmd.Bool("no-sort-blocks"),
 		SortTypeName: !cmd.Bool("no-sort-type-name"),
+		SortList:     !cmd.Bool("no-sort-list"),
 	}
 
 	for _, source := range sources {
