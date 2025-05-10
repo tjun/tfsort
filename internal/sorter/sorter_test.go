@@ -55,7 +55,7 @@ variable "a" {}
 data "c" "d1" {}
 resource "b" "r2" {}
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "sort blocks with standard order",
@@ -79,7 +79,7 @@ module "vpc" {}
 resource "aws_instance" "web" {}
 output "z" {}
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "disable block sort",
@@ -91,7 +91,7 @@ local "a" {}
 resource "b" "r2" {}
 local "a" {}
 `, // Blocks not sorted
-			sortOptions: SortOptions{SortBlocks: false, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: false, SortTypeName: true, SortList: true},
 		},
 
 		// --- Resource/Data Type & Name Sorting ---
@@ -109,7 +109,7 @@ resource "aws_instance" "web" {}
 resource "aws_s3_bucket" "logs" {}
 resource "aws_s3_bucket" "main" {}
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "sort data by type then name",
@@ -123,7 +123,7 @@ data "aws_ami" "amazon_linux" {}
 data "aws_ami" "ubuntu" {}
 data "aws_caller_identity" "current" {}
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "disable type/name sort",
@@ -137,7 +137,7 @@ resource "aws_s3_bucket" "main" {}
 resource "aws_instance" "web" {}
 resource "aws_s3_bucket" "logs" {}
 `, // If block sort is on, they stay together. If type/name sort is off, their internal order is preserved.
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: false},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: false, SortList: true},
 		},
 
 		// --- Attribute Sorting (Expect NO change, EXCEPT within lists) ---
@@ -157,7 +157,7 @@ resource "test" "example" {
   instance_type = "t2.micro"
 }
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "list attribute values ARE sorted", // List values ARE sorted
@@ -171,7 +171,7 @@ resource "test" "example" {
   list = ["a", "b", "c"]
 }
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "map attribute keys remain unsorted", // Map keys are not sorted
@@ -193,7 +193,7 @@ resource "test" "example" {
   }
 }
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "nested_blocks_remain_unsorted_relative_to_each_other_(list_inside_sorted)",
@@ -233,7 +233,7 @@ resource "test" "example" {
   }
 }
 `,
-			sortOptions: SortOptions{SortBlocks: false}, // Main blocks not sorted, but lists inside should be
+			sortOptions: SortOptions{SortBlocks: false, SortList: true}, // Main blocks not sorted, but lists inside should be
 		},
 
 		// --- Comments (Still relevant for block/type/name sort) ---
@@ -261,7 +261,7 @@ locals {
 # Resource B comment
 resource "b" "r2" {}
 `, // Expect exactly one newline between sorted blocks
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name: "preserve_comments_with_attributes_(list_inside_sorted)",
@@ -281,7 +281,7 @@ resource "test" "example" {
   ami   = "ami-123"     // AMI comment
 }
 `,
-			// sortOptions: default (SortBlocks: false, SortTypeName: false) -> attributes not sorted by key, list IS sorted
+			sortOptions: SortOptions{SortBlocks: false, SortTypeName: false, SortList: true},
 		},
 
 		// --- Ignore Directive ---
@@ -312,7 +312,7 @@ resource "b" "r2" {} // Should be sorted after 'a'
 
 resource "c" "r3" {} // Should be sorted after 'b'
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 			skipClean:   false,
 		},
 		{
@@ -375,7 +375,7 @@ resource "c" "r3" { // sort me, sort my list, but not my other attrs
   x    = 8
 }
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 			skipClean:   false,
 		},
 
@@ -384,13 +384,13 @@ resource "c" "r3" { // sort me, sort my list, but not my other attrs
 			name:        "empty input",
 			inputHCL:    "",
 			wantHCL:     "",
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		{
 			name:        "already sorted input",
 			inputHCL:    "variable \"a\" {}\nresource \"b\" \"c\" { list = [\"a\", \"b\"] }", // List already sorted
 			wantHCL:     "variable \"a\" {}\nresource \"b\" \"c\" { list = [\"a\", \"b\"] }",
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 		// Test case expecting a parsing error
 		{
@@ -478,7 +478,7 @@ resource "aws_security_group" "allow_common_ports" {
   }
 }
 `,
-			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true},
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
 	}
 
