@@ -31,7 +31,7 @@ This keeps your configuration organised, reduces noisy diffs, and makes code rev
 
 ### Using pre-built binaries (recommended)
 
-Binaries for Mac, Linux are available on the [releases page](https://github.com/tjun/tfsort/releases).
+Binaries for Mac, Linux, and Windows are available on the [releases page](https://github.com/tjun/tfsort/releases).
 
 ### Using `go install`
 
