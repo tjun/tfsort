@@ -63,8 +63,9 @@ If no files are given, `tfsort` reads from **stdin** and writes the sorted outpu
 |-------|----------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `-r`  | `--recursive`        | false   | Walk directories recursively and process all `*.tf` files.                                                                                                                                              |
 | `-i`  | `--in-place`         | false   | Overwrite files in place. For file inputs, files are only overwritten if changes are made. If no changes are necessary, the file is not touched. If input is from stdin, a warning is logged and output is written to stdout. |
-|       | `--sort-blocks`      | true    | Enable sorting of top-level blocks (default: enabled).                                                                                                                                                   |
-|       | `--sort-type-name`   | true    | Enable sorting of `resource`/`data` blocks by **type** and **name** (default: enabled).                                                                                                                  |
+|       | `--no-sort-blocks`   | false   | Disable sorting of top-level blocks (default: enabled).                                                                                                           |
+|       | `--no-sort-type-name`| false   | Disable sorting of `resource`/`data` blocks by **type** and **name** (default: enabled).                                                                          |
+|       | `--no-sort-list`     | false   | Disable sorting of list attribute values (default: enabled).                                                                                                    |
 |       | `--dry-run`          | false   | Exit with status code 1 if any files would be changed, 0 otherwise. No files are written.                                                                                                               |
 | `-h`  | `--help`             |         | Print help.                                                                                                                                                                                             |
 | `-v`  | `--version`          |         | Print version.                                                                                                                                                                                          |
@@ -88,7 +89,7 @@ Top-level blocks (those not nested within other blocks) are sorted according to 
 7.  `resource`
 8.  `output`
 
-Blocks of the same type maintain their relative order unless further sorting rules (like resource type/name sorting) apply. Unknown block types are typically sorted after all known types. This sorting can be disabled using the `--sort-blocks=false` flag (though it is enabled by default).
+Blocks of the same type maintain their relative order unless further sorting rules (like resource type/name sorting) apply. Unknown block types are typically sorted after all known types. This sorting can be disabled using the `--no-sort-blocks` flag (sorting is enabled by default).
 
 ### 2. Resource and Data Block Sorting
 
@@ -97,7 +98,7 @@ Within the `resource` and `data` block types, blocks are further sorted:
 *   **Primary Sort: By Type:** Blocks are first grouped and sorted alphabetically by their type label (e.g., `aws_iam_role` comes before `aws_s3_bucket`).
 *   **Secondary Sort: By Name:** Within each type group, blocks are then sorted alphabetically by their name label (e.g., for `aws_s3_bucket` type, `alpha_bucket` comes before `zeta_bucket`).
 
-This ensures a consistent and predictable ordering for all your `resource` and `data` declarations. This sorting can be disabled using the `--sort-type-name=false` flag (though it is enabled by default).
+This ensures a consistent and predictable ordering for all your `resource` and `data` declarations. This sorting can be disabled using the `--no-sort-type-name` flag (sorting is enabled by default).
 
 **Example:**
 

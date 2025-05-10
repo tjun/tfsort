@@ -42,6 +42,7 @@ func TestFiles(t *testing.T) {
 			sortOptions := SortOptions{
 				SortBlocks:   true,
 				SortTypeName: true,
+				SortList:     true,
 			}
 
 			// --- Parse and Sort ---

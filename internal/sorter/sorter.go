@@ -10,7 +10,7 @@ import (
 type SortOptions struct {
 	SortBlocks   bool
 	SortTypeName bool
-	// List sorting is implicitly always on
+	SortList     bool
 }
 
 // Sort parses the input file, sorts it according to options, and returns a new sorted file object.
@@ -45,7 +45,9 @@ func Sort(file *hclwrite.File, options SortOptions) (*hclwrite.File, error) {
 	}
 
 	// --- Step 3: Sort Lists within the new body ---
-	SortListValuesInBody(newBody) // Call the new function from list_sorter.go
+	if options.SortList {
+		SortListValuesInBody(newBody)
+	}
 
 	// Check if anything actually changed compared to original file bytes
 	originalBytes := file.Bytes()
