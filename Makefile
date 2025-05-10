@@ -2,6 +2,7 @@
 GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
+GOFMT=$(GOCMD) fmt
 GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 BINARY_NAME=tfsort
@@ -39,7 +40,7 @@ LINT_FLAGS=run
 .PHONY: all test build clean lint help release install-lint install
 .DEFAULT_GOAL := help
 
-all: test build
+all: fmt test build
 
 # Run tests
 test:
@@ -59,12 +60,17 @@ clean:
 	$(GOCLEAN)
 	@rm -rf $(OUTPUT_DIR)
 
+# Format Go code
+fmt:
+	@echo "Formatting Go code..."
+	$(GOFMT) ./...
+
 # Run linter using the locally installed golangci-lint
 # Depends on the $(GOLANGCI_LINT) file target to ensure it's installed.
 lint: $(GOLANGCI_LINT)
 	@echo "Running linter..."
+	$(GOFMT) ./...
 	$(GOLANGCI_LINT) $(LINT_FLAGS) ./...
-
 # Rule to install golangci-lint if it doesn't exist or if forced by make install-lint
 # Usage: make install-lint [GOLANGCI_LINT_VERSION=vx.y.z]
 # If GOLANGCI_LINT_VERSION is not set, it installs the version specified by the script (usually latest stable).
