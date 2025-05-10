@@ -302,7 +302,7 @@ resource "a" "b" {
 			}
 
 			if gotCleanedHCL != wantCleanedHCL {
-				t.Errorf("Sort() output mismatch for test case: %s\nGot:\n%s\n\nWant:\n%s", tc.name, gotCleanedHCL, wantCleanedHCL)
+				t.Errorf("Sort() output mismatch for test case: %s\n", tc.name)
 				// Raw output can be helpful for subtle diffs not caught by cleanHCL
 				if string(gotHCLBytes) != gotCleanedHCL || tc.wantHCL != wantCleanedHCL {
 					t.Logf("Raw Got:\n%s", string(gotHCLBytes))
