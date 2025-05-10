@@ -94,5 +94,3 @@ func TestFiles(t *testing.T) {
 		})
 	}
 }
-
-// normalizeStringForComparison helper is no longer needed (or can be simplified if used)
