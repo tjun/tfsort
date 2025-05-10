@@ -480,6 +480,21 @@ resource "aws_security_group" "allow_common_ports" {
 `,
 			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
 		},
+		// --- Test: List sorting can be disabled ---
+		{
+			name: "disable list sort",
+			inputHCL: `
+resource "test" "example" {
+  list = ["b", "a", "c"]
+}
+`,
+			wantHCL: `
+resource "test" "example" {
+  list = ["b", "a", "c"]
+}
+`,
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: false},
+		},
 	}
 
 	for _, tc := range testCases {
