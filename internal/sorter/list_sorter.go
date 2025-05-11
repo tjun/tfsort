@@ -142,8 +142,58 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 	if !changed {
 		return tokens, false
 	}
-
-	// Rebuild the token list using the sorted elements
+	// If any element has a trailing comment, manually build sorted list to preserve comments
+	hasComment := false
+	for _, elem := range elementsCopy {
+		for _, t := range elem.tokens {
+			if t.Type == hclsyntax.TokenComment {
+				hasComment = true
+				break
+			}
+		}
+		if hasComment {
+			break
+		}
+	}
+	if hasComment {
+		// Manually build sorted multi-line list tokens preserving comments
+		var newTokens hclwrite.Tokens
+		// Opening bracket and newline
+		newTokens = append(newTokens, tokens[0])
+		newTokens = append(newTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+		for _, elem := range elementsCopy {
+			// Build a single line for the element
+			var buf bytes.Buffer
+			var commentPart string
+			for _, t := range elem.tokens {
+				if t.Type == hclsyntax.TokenComment {
+					// Extract comment text without markers and whitespace
+					txt := strings.TrimSpace(string(t.Bytes))
+					txt = strings.TrimPrefix(txt, "//")
+					txt = strings.TrimPrefix(txt, "#")
+					txt = strings.TrimSpace(txt)
+					commentPart = "# " + txt
+				} else {
+					buf.Write(t.Bytes)
+				}
+			}
+			// Append comma
+			buf.WriteByte(',')
+			// Append comment if present
+			if commentPart != "" {
+				buf.WriteByte(' ')
+				buf.WriteString(commentPart)
+			}
+			// Append newline
+			buf.WriteByte('\n')
+			// Add the constructed line as one token
+			newTokens = append(newTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: buf.Bytes()})
+		}
+		// Closing bracket
+		newTokens = append(newTokens, tokens[len(tokens)-1])
+		return newTokens, true
+	}
+	// Default rebuild for lists without comments
 	return rebuildListTokensFromElements(elementsCopy, innerTokens, tokens[0], tokens[len(tokens)-1]), true
 }
 
@@ -267,11 +317,19 @@ func checkIgnoreDirective(innerListTokens hclwrite.Tokens) bool {
 // parseSingleElement processes raw tokens for a single list element and returns
 // a listElement, a flag indicating if the element was effectively empty, and a success flag.
 func parseSingleElement(rawElementTokens hclwrite.Tokens) (*listElement, bool, bool) {
+	// Prepare tokens for processing: remove trailing comma, even if followed by whitespace/newline.
 	elementTokensToProcess := rawElementTokens
-	// If the last token of rawElementTokens is a comma, remove it for processing.
-	// This assumes a comma here is a separator, not part of the element's value itself.
-	if len(rawElementTokens) > 0 && rawElementTokens[len(rawElementTokens)-1].Type == hclsyntax.TokenComma {
-		elementTokensToProcess = rawElementTokens[:len(rawElementTokens)-1]
+	if len(rawElementTokens) > 0 {
+		last := len(rawElementTokens) - 1
+		// Skip trailing whitespace, newline, or comments
+		for last >= 0 && (rawElementTokens[last].Type == hclsyntax.TokenNewline || rawElementTokens[last].Type == hclsyntax.TokenTabs || rawElementTokens[last].Type == hclsyntax.TokenComment) {
+			last--
+		}
+		// Remove trailing comma if present before skipped tokens
+		if last >= 0 && rawElementTokens[last].Type == hclsyntax.TokenComma {
+			// Exclude the comma at position last
+			elementTokensToProcess = append(rawElementTokens[:last], rawElementTokens[last+1:]...)
+		}
 	}
 
 	// Separate leading comments/whitespace from the actual content tokens
@@ -347,57 +405,56 @@ func extractPrimaryTokenBytes(elementTokens hclwrite.Tokens) (key []byte, val ct
 
 // extractSimpleListElements parses the inner tokens of a list (excluding brackets)
 // and extracts each element as a listElement including its leading comments/whitespace.
+// extractSimpleListElements parses the inner tokens of a simple list (excluding outer brackets)
+// and extracts each element as a listElement, preserving leading comments and trailing comments.
+// It supports both multi-line lists (grouped by line) and inline lists (grouped by commas).
+// extractSimpleListElements parses the inner tokens of a list (excluding brackets)
+// splitting elements on top-level commas, preserving nested structures and comments.
 func extractSimpleListElements(innerTokens hclwrite.Tokens) ([]listElement, bool) {
 	var elements []listElement
-	var currentElementTokens hclwrite.Tokens
+	var current hclwrite.Tokens
 	level := 0
-
 	for i := 0; i < len(innerTokens); i++ {
-		token := innerTokens[i]
-		switch token.Type {
+		tok := innerTokens[i]
+		// Track nested braces, brackets, parentheses
+		switch tok.Type {
 		case hclsyntax.TokenOBrace, hclsyntax.TokenOBrack, hclsyntax.TokenOParen:
 			level++
 		case hclsyntax.TokenCBrace, hclsyntax.TokenCBrack, hclsyntax.TokenCParen:
 			level--
 		}
-
-		currentElementTokens = append(currentElementTokens, token)
-
-		if level == 0 && token.Type == hclsyntax.TokenComma || i == len(innerTokens)-1 {
-			// We've reached the end of a potential element (due to comma or end of all tokens)
-			element, isEmpty, ok := parseSingleElement(currentElementTokens)
+		current = append(current, tok)
+		// At top-level comma, finish this element
+		if level == 0 && tok.Type == hclsyntax.TokenComma {
+			// Include any trailing whitespace/comments immediately after comma
+			for i+1 < len(innerTokens) {
+				next := innerTokens[i+1]
+				if next.Type == hclsyntax.TokenTabs || next.Type == hclsyntax.TokenComment {
+					current = append(current, next)
+					i++
+					continue
+				}
+				break
+			}
+			// Parse this element slice
+			elem, isEmpty, ok := parseSingleElement(current)
 			if !ok {
-				// parseSingleElement already logged the error, so just propagate failure.
 				return nil, false
 			}
 			if !isEmpty {
-				elements = append(elements, *element)
+				elements = append(elements, *elem)
 			}
-			currentElementTokens = hclwrite.Tokens{} // Reset for the next element
-		}
-	}
-
-	// Final check for unbalanced structures at the end of all inner tokens
-	if level != 0 {
-		log.Println("Warning: Unbalanced parentheses at end of list, skipping sort.")
-		return nil, false
-	}
-
-	// If after processing all tokens, we have no elements, but there were non-whitespace/comment tokens,
-	// it might indicate an issue (e.g. a list with a single complex element without a trailing comma that wasn't properly handled,
-	// though current logic for i == len(innerTokens)-1 should cover this).
-	// This check is a safeguard.
-	if len(elements) == 0 && len(innerTokens) > 0 {
-		hasNonWhitespaceOrComment := false
-		for _, tok := range innerTokens {
-			if tok.Type != hclsyntax.TokenNewline && tok.Type != hclsyntax.TokenComment && tok.Type != hclsyntax.TokenTabs {
-				hasNonWhitespaceOrComment = true
-				break
+			current = hclwrite.Tokens{}
+		} else if i == len(innerTokens)-1 {
+			// Last element without trailing comma
+			elem, isEmpty, ok := parseSingleElement(current)
+			if !ok {
+				return nil, false
 			}
-		}
-		if hasNonWhitespaceOrComment {
-			log.Printf("Warning: Could not parse elements from non-empty list content: %s. Skipping list sort.", string(innerTokens.Bytes()))
-			return nil, false
+			if !isEmpty {
+				elements = append(elements, *elem)
+			}
+			current = hclwrite.Tokens{}
 		}
 	}
 	return elements, true
@@ -406,9 +463,22 @@ func extractSimpleListElements(innerTokens hclwrite.Tokens) ([]listElement, bool
 // --- Helper functions to add ---
 
 // checkSimpleListLiteral checks if tokens represent a simple list literal [...]
+// checkSimpleListLiteral checks if tokens represent a simple list literal [...]
+// It skips leading/trailing whitespace and newline tokens when detecting the list brackets.
 func checkSimpleListLiteral(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
-	if len(tokens) >= 2 && tokens[0].Type == hclsyntax.TokenOBrack && tokens[len(tokens)-1].Type == hclsyntax.TokenCBrack {
-		return tokens, true
+	// Skip leading whitespace/newline tokens
+	start := 0
+	for start < len(tokens) && (tokens[start].Type == hclsyntax.TokenNewline || tokens[start].Type == hclsyntax.TokenTabs) {
+		start++
+	}
+	// Skip trailing whitespace/newline tokens
+	end := len(tokens) - 1
+	for end >= 0 && (tokens[end].Type == hclsyntax.TokenNewline || tokens[end].Type == hclsyntax.TokenTabs) {
+		end--
+	}
+	// Check for enclosing brackets
+	if end > start && tokens[start].Type == hclsyntax.TokenOBrack && tokens[end].Type == hclsyntax.TokenCBrack {
+		return tokens[start : end+1], true
 	}
 	return nil, false
 }
