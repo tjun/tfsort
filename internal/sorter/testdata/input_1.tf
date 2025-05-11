@@ -1,6 +1,6 @@
 resource "list" "fruits" {
 
-  # keep leading comments
+  # keep leading comments with the value
   foods = [
     # banana
     "banana",
