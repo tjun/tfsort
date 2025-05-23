@@ -2,8 +2,6 @@ package sorter
 
 import (
 	"bytes"
-	// "fmt" // Keep commented out unless parseSingleElement's log line is restored
-	// "log" // Keep commented out unless parseSingleElement's log line is restored
 	"sort"
 	"strings"
 
@@ -45,7 +43,6 @@ func SortListValuesInBody(body *hclwrite.Body) {
 	}
 }
 
-// --- New recursive function ---
 // sortListsInTokens recursively finds list literals [...] and other structures within a token sequence and sorts them.
 // Returns the potentially modified tokens and a boolean indicating if any modification occurred.
 func sortListsInTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
@@ -558,13 +555,9 @@ func extractPrimaryTokenBytes(elementTokens hclwrite.Tokens) (key []byte, val ct
 	return key, cty.UnknownVal(cty.DynamicPseudoType), false, true
 }
 
-// extractSimpleListElements parses the inner tokens of a list (excluding brackets)
-// and extracts each element as a listElement including its leading comments/whitespace.
 // extractSimpleListElements parses the inner tokens of a simple list (excluding outer brackets)
 // and extracts each element as a listElement, preserving leading comments and trailing comments.
 // It supports both multi-line lists (grouped by line) and inline lists (grouped by commas).
-// extractSimpleListElements parses the inner tokens of a list (excluding brackets)
-// splitting elements on top-level commas, preserving nested structures and comments.
 func extractSimpleListElements(innerTokens hclwrite.Tokens) ([]listElement, bool) {
 	var elements []listElement
 	var current hclwrite.Tokens
@@ -615,9 +608,6 @@ func extractSimpleListElements(innerTokens hclwrite.Tokens) ([]listElement, bool
 	return elements, true
 }
 
-// --- Helper functions to add ---
-
-// checkSimpleListLiteral checks if tokens represent a simple list literal [...]
 // checkSimpleListLiteral checks if tokens represent a simple list literal [...]
 // It skips leading/trailing whitespace and newline tokens when detecting the list brackets.
 func checkSimpleListLiteral(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
@@ -833,5 +823,3 @@ func cleanElementLeadingWhitespace(elem listElement) listElement {
 func isSpaceToken(tok *hclwrite.Token) bool {
 	return len(tok.Bytes) == 1 && tok.Bytes[0] == ' '
 }
-
-// buildBracketCommentBytes builds the byte representation of bracket comments
