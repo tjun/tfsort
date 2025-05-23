@@ -493,12 +493,25 @@ func extractPrimaryTokenBytes(elementTokens hclwrite.Tokens) (key []byte, val ct
 		keyBuffer.Write(token.Bytes)
 	}
 	key = keyBuffer.Bytes()
-	if len(elementTokens) == 1 && elementTokens[0].Type == hclsyntax.TokenNumberLit {
-		parsedVal, err := ctyjson.Unmarshal(elementTokens[0].Bytes, cty.Number)
-		if err == nil && parsedVal.Type() == cty.Number {
-			return key, parsedVal, true, true
+
+	// Find the first non-comment, non-whitespace token to check if it's a number
+	for _, token := range elementTokens {
+		if token.Type == hclsyntax.TokenNumberLit {
+			parsedVal, err := ctyjson.Unmarshal(token.Bytes, cty.Number)
+			if err == nil && parsedVal.Type() == cty.Number {
+				return key, parsedVal, true, true
+			}
+			break // Found a number token but couldn't parse it, stop looking
+		}
+		// Skip comments and whitespace, but break on any other meaningful token type
+		if token.Type != hclsyntax.TokenComment &&
+			token.Type != hclsyntax.TokenNewline &&
+			token.Type != hclsyntax.TokenTabs &&
+			token.Type != hclsyntax.TokenComma {
+			break // Found a non-number meaningful token
 		}
 	}
+
 	return key, cty.UnknownVal(cty.DynamicPseudoType), false, true
 }
 
