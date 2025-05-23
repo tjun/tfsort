@@ -65,7 +65,8 @@ func sortListsInTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		return tokens, false // List inside toset was not sorted
 	}
 
-	return tokens, false // Not a recognized list structure to sort
+	// 3. Check for list literals inside function call arguments
+	return sortListsInFunctionCall(tokens)
 }
 
 func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
@@ -78,7 +79,16 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		return tokens, false
 	}
 
-	elements, ok := extractSimpleListElements(innerTokens)
+	// Check if we have bracket-level comments first
+	bracketComments, elementTokens := extractBracketLevelComments(innerTokens)
+
+	// Use original tokens if no bracket comments found
+	tokensToProcess := innerTokens
+	if len(bracketComments) > 0 {
+		tokensToProcess = elementTokens
+	}
+
+	elements, ok := extractSimpleListElements(tokensToProcess)
 	if !ok || len(elements) <= 1 {
 		return tokens, false
 	}
@@ -88,11 +98,16 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		return tokens, false
 	}
 
+	// Choose rebuild strategy based on whether we have bracket comments
+	if len(bracketComments) > 0 {
+		return rebuildListWithBracketComments(sortedElements, tokens[0], tokens[len(tokens)-1], bracketComments), true
+	}
+
 	if hasComments(sortedElements) {
 		return rebuildCommentedListTokens(sortedElements, tokens[0], tokens[len(tokens)-1]), true
 	}
 
-	return rebuildListTokensFromElements(sortedElements, innerTokens, tokens[0], tokens[len(tokens)-1]), true
+	return rebuildListTokensFromElements(sortedElements, tokensToProcess, tokens[0], tokens[len(tokens)-1]), true
 }
 
 // isValidListStructure checks if tokens represent a valid list structure [...]
@@ -235,6 +250,34 @@ func ensureTrailingNewline(tokens hclwrite.Tokens) hclwrite.Tokens {
 	}
 
 	return hclwrite.Tokens{&hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")}}
+}
+
+// processElementForCommentedListWithTrailingCommas is like processElementForCommentedList but always adds trailing commas
+func processElementForCommentedListWithTrailingCommas(elem listElement, index, totalElements int) hclwrite.Tokens {
+	var tokens hclwrite.Tokens
+
+	// Clean leading comments for non-first elements to avoid double-spacing
+	cleanedLeadingComments := elem.LeadingComments
+	if index > 0 {
+		for len(cleanedLeadingComments) > 0 && cleanedLeadingComments[0].Type == hclsyntax.TokenNewline {
+			cleanedLeadingComments = cleanedLeadingComments[1:]
+		}
+	}
+	tokens = append(tokens, cleanedLeadingComments...)
+
+	// Separate value and comment tokens
+	valueTokens, commentTokens := separateValueAndCommentTokens(elem.Tokens)
+	tokens = append(tokens, valueTokens...)
+
+	// Add comma if needed (always add for bracket comment lists)
+	if !endsWithComma(valueTokens) {
+		tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenComma, Bytes: []byte(",")})
+	}
+
+	// Add comment tokens
+	tokens = append(tokens, commentTokens...)
+
+	return tokens
 }
 
 // rebuildListTokensFromElements reconstructs the HCL tokens for a list
@@ -623,3 +666,172 @@ func buildTosetCallTokens(sortedListTokens hclwrite.Tokens) hclwrite.Tokens {
 	finalTokens = append(finalTokens, &hclwrite.Token{Type: hclsyntax.TokenCParen, Bytes: []byte(")")})
 	return finalTokens
 }
+
+// sortListsInFunctionCall recursively searches for list literals inside function call arguments
+// and sorts any that are found. Returns modified tokens and whether any changes were made.
+func sortListsInFunctionCall(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
+	anySorted := false
+	result := make(hclwrite.Tokens, len(tokens))
+	copy(result, tokens)
+
+	// Find and recursively sort any list literals within the token sequence
+	for i := 0; i < len(result); i++ {
+		tok := result[i]
+
+		// Look for opening brackets that might start a list literal
+		if tok.Type == hclsyntax.TokenOBrack {
+			// Find the matching closing bracket
+			level := 1
+			j := i + 1
+			for j < len(result) && level > 0 {
+				switch result[j].Type {
+				case hclsyntax.TokenOBrack:
+					level++
+				case hclsyntax.TokenCBrack:
+					level--
+				}
+				j++
+			}
+
+			// If we found a complete bracket pair, try to sort it as a list
+			if level == 0 {
+				listTokens := result[i:j]
+				sortedListTokens, wasSorted := trySortSimpleListTokens(listTokens)
+				if wasSorted {
+					// Replace the tokens in result
+					newResult := make(hclwrite.Tokens, 0, len(result)-len(listTokens)+len(sortedListTokens))
+					newResult = append(newResult, result[:i]...)
+					newResult = append(newResult, sortedListTokens...)
+					newResult = append(newResult, result[j:]...)
+					result = newResult
+					anySorted = true
+					// Adjust j to account for the size change
+					i += len(sortedListTokens) - 1
+				} else {
+					i = j - 1 // Skip to end of this bracket pair
+				}
+			}
+		}
+	}
+
+	return result, anySorted
+}
+
+// extractBracketLevelComments separates comments that should stay with the opening bracket
+// from tokens that should be processed as list elements.
+// Comments appearing on the same line as opening bracket (no newline before) are bracket-level.
+func extractBracketLevelComments(innerTokens hclwrite.Tokens) (bracketComments hclwrite.Tokens, elementTokens hclwrite.Tokens) {
+	if len(innerTokens) == 0 {
+		return nil, innerTokens
+	}
+
+	// Look for initial comments that should stay with the bracket (no leading newline)
+	i := 0
+	for i < len(innerTokens) {
+		tok := innerTokens[i]
+
+		// If we hit a newline, stop collecting bracket comments
+		if tok.Type == hclsyntax.TokenNewline {
+			break
+		}
+
+		// Collect comments and whitespace (including spaces) that come before any newline
+		if tok.Type == hclsyntax.TokenComment || tok.Type == hclsyntax.TokenTabs ||
+			isSpaceToken(tok) {
+			bracketComments = append(bracketComments, tok)
+			i++
+		} else {
+			// Hit a non-comment, non-whitespace token - stop collecting bracket comments
+			break
+		}
+	}
+
+	// Return the remaining tokens as element tokens, but clean up extra whitespace
+	// since we'll add our own formatting
+	elementTokens = innerTokens[i:]
+
+	// Remove leading newlines and extra whitespace after bracket comments
+	for len(elementTokens) > 0 && (elementTokens[0].Type == hclsyntax.TokenNewline || elementTokens[0].Type == hclsyntax.TokenTabs) {
+		elementTokens = elementTokens[1:]
+	}
+
+	return bracketComments, elementTokens
+}
+
+// rebuildListWithBracketComments rebuilds a list with bracket-level comments
+func rebuildListWithBracketComments(elements []listElement, openBracket, closeBracket *hclwrite.Token, bracketComments hclwrite.Tokens) hclwrite.Tokens {
+	// Create modified opening bracket that includes space and comment
+	modifiedOpenBracket := &hclwrite.Token{
+		Type:  openBracket.Type,
+		Bytes: buildOpenBracketWithComments(openBracket.Bytes, bracketComments),
+	}
+
+	result := hclwrite.Tokens{modifiedOpenBracket}
+
+	// Add newline after the bracket+comment
+	result = append(result, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+
+	// Add each element with proper formatting
+	for i, elem := range elements {
+		// Use cleaned element processing - remove any leading newlines from the element
+		cleanedElem := cleanElementLeadingWhitespace(elem)
+		result = append(result, processElementForCommentedListWithTrailingCommas(cleanedElem, i, len(elements))...)
+
+		// Add newline after each element for multi-line formatting
+		result = append(result, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+	}
+
+	// Ensure proper trailing formatting and closing bracket
+	result = append(result, ensureTrailingNewline(result)...)
+	result = append(result, closeBracket)
+
+	return result
+}
+
+// buildOpenBracketWithComments creates bracket bytes that include space and comments
+func buildOpenBracketWithComments(bracketBytes []byte, comments hclwrite.Tokens) []byte {
+	result := make([]byte, len(bracketBytes))
+	copy(result, bracketBytes)
+
+	if len(comments) > 0 {
+		// Add single space
+		result = append(result, ' ')
+		// Add comment content (strip newline since we'll add it separately)
+		for _, tok := range comments {
+			commentBytes := tok.Bytes
+			// Remove trailing newline from comment
+			if len(commentBytes) > 0 && commentBytes[len(commentBytes)-1] == '\n' {
+				commentBytes = commentBytes[:len(commentBytes)-1]
+			}
+			result = append(result, commentBytes...)
+		}
+	}
+
+	return result
+}
+
+// cleanElementLeadingWhitespace removes excessive leading whitespace from an element
+func cleanElementLeadingWhitespace(elem listElement) listElement {
+	cleanedLeading := elem.LeadingComments
+
+	// Remove leading newlines but preserve meaningful comments
+	for len(cleanedLeading) > 0 && cleanedLeading[0].Type == hclsyntax.TokenNewline {
+		cleanedLeading = cleanedLeading[1:]
+	}
+
+	return listElement{
+		LeadingComments:  cleanedLeading,
+		Tokens:           elem.Tokens,
+		TrailingComments: elem.TrailingComments,
+		Key:              elem.Key,
+		CtyValue:         elem.CtyValue,
+		IsNumber:         elem.IsNumber,
+	}
+}
+
+// isSpaceToken checks if a token represents a space character
+func isSpaceToken(tok *hclwrite.Token) bool {
+	return len(tok.Bytes) == 1 && tok.Bytes[0] == ' '
+}
+
+// buildBracketCommentBytes builds the byte representation of bracket comments
