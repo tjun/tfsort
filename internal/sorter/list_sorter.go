@@ -156,7 +156,16 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		}
 
 		for i, elem := range elementsCopy {
-			rebuiltTokens = append(rebuiltTokens, elem.LeadingComments...)
+			// Clean leading comments to avoid excessive newlines only when there are trailing comments
+			cleanedLeadingComments := elem.LeadingComments
+			if i > 0 && hasComment {
+				// For elements after the first in lists with comments, remove leading newlines to avoid double-spacing
+				// This handles the case where trailing newlines from comma parsing become leading newlines
+				for len(cleanedLeadingComments) > 0 && cleanedLeadingComments[0].Type == hclsyntax.TokenNewline {
+					cleanedLeadingComments = cleanedLeadingComments[1:]
+				}
+			}
+			rebuiltTokens = append(rebuiltTokens, cleanedLeadingComments...)
 
 			// Separate value tokens and comment tokens from elem.Tokens.
 			var valueTokens hclwrite.Tokens
@@ -188,39 +197,10 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 				rebuiltTokens = append(rebuiltTokens, commentTokens...)
 			}
 
-			// Conditionally add a newline if the element's content doesn't already end with one.
-			elementContentEndsWithNewline := false
-			// Check based on the last *actually appended* tokens for this element's line.
-			// Start checking from commentTokens, then valueTokens if no comments.
-			if len(commentTokens) > 0 {
-				lastToken := commentTokens[len(commentTokens)-1]
-				if lastToken.Type == hclsyntax.TokenNewline ||
-					(lastToken.Type == hclsyntax.TokenComment && bytes.HasSuffix(lastToken.Bytes, []byte("\n"))) {
-					elementContentEndsWithNewline = true
-				}
-			} else if len(valueTokens) > 0 {
-				// No line comment tokens, check the last of the value tokens.
-				// This also implicitly checks the comma if it was part of valueTokens.
-				lastToken := valueTokens[len(valueTokens)-1]
-				if lastToken.Type == hclsyntax.TokenNewline ||
-					(lastToken.Type == hclsyntax.TokenComment && bytes.HasSuffix(lastToken.Bytes, []byte("\n"))) {
-					// This condition is less likely for typical valueTokens if parseSingleElement trims them,
-					// but included for robustness.
-					elementContentEndsWithNewline = true
-				}
-			} else if len(elem.LeadingComments) > 0 {
-				// Element has no value or line comments, only leading comments (e.g. an empty line, or a commented-out item)
-				// Check if the leading comments themselves ended with a newline.
-				lastToken := elem.LeadingComments[len(elem.LeadingComments)-1]
-				if lastToken.Type == hclsyntax.TokenNewline ||
-					(lastToken.Type == hclsyntax.TokenComment && bytes.HasSuffix(lastToken.Bytes, []byte("\n"))) {
-					elementContentEndsWithNewline = true
-				}
-			}
-			// If elementContentEndsWithNewline is still false (e.g. simple value, no comment, no trailing newline in value),
-			// then we need to add an explicit newline.
-
-			if !elementContentEndsWithNewline {
+			// For multi-line lists, each element should end with a newline.
+			// If there are comments, they typically already include a newline.
+			// If there are no comments, we need to add a newline.
+			if len(commentTokens) == 0 {
 				rebuiltTokens = append(rebuiltTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
 			}
 		}
@@ -273,9 +253,33 @@ func rebuildListTokensFromElements(
 	closingBracket *hclwrite.Token,
 ) hclwrite.Tokens {
 	newInnerTokens := hclwrite.Tokens{}
+
+	// Check if this will be a multi-line list by looking for newlines in any element
+	willBeMultiLine := false
+	for _, checkElem := range sortedElements {
+		for _, tok := range append(checkElem.LeadingComments, checkElem.Tokens...) {
+			if tok.Type == hclsyntax.TokenNewline {
+				willBeMultiLine = true
+				break
+			}
+		}
+		if willBeMultiLine {
+			break
+		}
+	}
+
 	for i, elem := range sortedElements {
+		// Clean up leading comments for the first element to avoid extra newlines
+		cleanedLeadingComments := elem.LeadingComments
+		if i == 0 && willBeMultiLine {
+			// For the first element in multi-line lists, remove leading newlines
+			for len(cleanedLeadingComments) > 0 && cleanedLeadingComments[0].Type == hclsyntax.TokenNewline {
+				cleanedLeadingComments = cleanedLeadingComments[1:]
+			}
+		}
+
 		// Append leading comments/whitespace first
-		newInnerTokens = append(newInnerTokens, elem.LeadingComments...)
+		newInnerTokens = append(newInnerTokens, cleanedLeadingComments...)
 		// Append the actual element content tokens
 		newInnerTokens = append(newInnerTokens, elem.Tokens...) // MODIFIED to use elem.Tokens
 
@@ -307,6 +311,11 @@ func rebuildListTokensFromElements(
 
 	// Construct the final token list
 	finalTokens := hclwrite.Tokens{openingBracket} // Start with '['
+
+	// Add newline after opening bracket for multi-line lists
+	if isMultiLine && len(newInnerTokens) > 0 {
+		finalTokens = append(finalTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+	}
 
 	finalTokens = append(finalTokens, newInnerTokens...)
 
