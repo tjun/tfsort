@@ -69,179 +69,173 @@ func sortListsInTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 }
 
 func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
-	if len(tokens) < 2 || tokens[0].Type != hclsyntax.TokenOBrack || tokens[len(tokens)-1].Type != hclsyntax.TokenCBrack {
-		return tokens, false // Not a list or malformed
-	}
-
-	// Check for "tfsort:ignore" comment immediately after the opening bracket '['
-	if checkIgnoreDirective(tokens[1 : len(tokens)-1]) { // Pass inner tokens to checkIgnoreDirective
-		return tokens, false // Ignore!
+	if !isValidListStructure(tokens) {
+		return tokens, false
 	}
 
 	innerTokens := tokens[1 : len(tokens)-1]
-	if len(innerTokens) == 0 {
-		return tokens, false // Empty list, no change
-	}
-
-	// extractSimpleListElements will also check for ignore comments within the elements.
-	elementsCopy, ok := extractSimpleListElements(innerTokens)
-	if !ok || len(elementsCopy) <= 1 { // If not parseable (e.g., due to ignore) or only one/zero elements
+	if len(innerTokens) == 0 || checkIgnoreDirective(innerTokens) {
 		return tokens, false
 	}
 
-	// Check if any actual change would occur before rebuilding tokens
-	originalOrder := make([]listElement, len(elementsCopy))
-	copy(originalOrder, elementsCopy)
+	elements, ok := extractSimpleListElements(innerTokens)
+	if !ok || len(elements) <= 1 {
+		return tokens, false
+	}
 
-	sort.SliceStable(elementsCopy, func(i, j int) bool {
-		elemI := elementsCopy[i]
-		elemJ := elementsCopy[j]
-		var result bool
-		if elemI.IsNumber && elemJ.IsNumber {
-			valI := elemI.CtyValue.AsBigFloat()
-			valJ := elemJ.CtyValue.AsBigFloat()
-			cmpResult := valI.Cmp(valJ)
-			if cmpResult != 0 {
-				result = cmpResult < 0
-			} else {
-				result = bytes.Compare(elemI.Key, elemJ.Key) == -1
-			}
-		} else if elemI.IsNumber && !elemJ.IsNumber {
-			result = true
-		} else if !elemI.IsNumber && elemJ.IsNumber {
-			result = false
-		} else {
-			result = bytes.Compare(elemI.Key, elemJ.Key) == -1
-		}
-		return result
+	sortedElements, hasChanged := sortListElements(elements)
+	if !hasChanged {
+		return tokens, false
+	}
+
+	if hasComments(sortedElements) {
+		return rebuildCommentedListTokens(sortedElements, tokens[0], tokens[len(tokens)-1]), true
+	}
+
+	return rebuildListTokensFromElements(sortedElements, innerTokens, tokens[0], tokens[len(tokens)-1]), true
+}
+
+// isValidListStructure checks if tokens represent a valid list structure [...]
+func isValidListStructure(tokens hclwrite.Tokens) bool {
+	return len(tokens) >= 2 &&
+		tokens[0].Type == hclsyntax.TokenOBrack &&
+		tokens[len(tokens)-1].Type == hclsyntax.TokenCBrack
+}
+
+// sortListElements sorts the given list elements and returns the sorted list and whether any change occurred
+func sortListElements(elements []listElement) ([]listElement, bool) {
+	originalOrder := make([]listElement, len(elements))
+	copy(originalOrder, elements)
+
+	sort.SliceStable(elements, func(i, j int) bool {
+		return compareListElements(elements[i], elements[j])
 	})
 
-	changed := false
-	if len(elementsCopy) != len(originalOrder) { // Should not happen but as a safeguard
-		changed = true
-	} else {
-		for i := 0; i < len(elementsCopy); i++ {
-			if !bytes.Equal(originalOrder[i].Key, elementsCopy[i].Key) {
-				changed = true
-				break
-			}
+	// Check if order changed
+	for i := 0; i < len(elements); i++ {
+		if !bytes.Equal(originalOrder[i].Key, elements[i].Key) {
+			return elements, true
 		}
 	}
+	return elements, false
+}
 
-	if !changed {
-		return tokens, false
+// compareListElements provides the comparison logic for sorting list elements
+func compareListElements(elemI, elemJ listElement) bool {
+	if elemI.IsNumber && elemJ.IsNumber {
+		valI := elemI.CtyValue.AsBigFloat()
+		valJ := elemJ.CtyValue.AsBigFloat()
+		cmpResult := valI.Cmp(valJ)
+		if cmpResult != 0 {
+			return cmpResult < 0
+		}
+		return bytes.Compare(elemI.Key, elemJ.Key) == -1
 	}
 
-	// Determine if special comment handling is needed
-	hasComment := false
-	for _, elem := range elementsCopy {
-		for _, t := range elem.Tokens { // MODIFIED TO USE elem.Tokens
+	if elemI.IsNumber && !elemJ.IsNumber {
+		return true
+	}
+	if !elemI.IsNumber && elemJ.IsNumber {
+		return false
+	}
+
+	return bytes.Compare(elemI.Key, elemJ.Key) == -1
+}
+
+// hasComments checks if any element in the list contains comments
+func hasComments(elements []listElement) bool {
+	for _, elem := range elements {
+		for _, t := range elem.Tokens {
 			if t.Type == hclsyntax.TokenComment {
-				hasComment = true
-				break
+				return true
 			}
-		}
-		if hasComment {
-			break
 		}
 	}
-	if hasComment { // This is the main logic block for commented lists
-		// This is the start of the 'if hasComment' block REPLACEMENT
-		rebuiltTokens := hclwrite.Tokens{}
-		rebuiltTokens = append(rebuiltTokens, tokens[0]) // Append the opening bracket '['
+	return false
+}
 
-		if len(elementsCopy) > 0 {
-			// Add a newline after '[' to signal a multi-line list.
-			rebuiltTokens = append(rebuiltTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+// rebuildCommentedListTokens rebuilds tokens for lists that contain comments
+func rebuildCommentedListTokens(elements []listElement, openBracket, closeBracket *hclwrite.Token) hclwrite.Tokens {
+	rebuiltTokens := hclwrite.Tokens{openBracket}
+
+	if len(elements) > 0 {
+		rebuiltTokens = append(rebuiltTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+	}
+
+	for i, elem := range elements {
+		rebuiltTokens = append(rebuiltTokens, processElementForCommentedList(elem, i, len(elements))...)
+	}
+
+	rebuiltTokens = append(rebuiltTokens, ensureTrailingNewline(rebuiltTokens)...)
+	rebuiltTokens = append(rebuiltTokens, closeBracket)
+
+	return rebuiltTokens
+}
+
+// processElementForCommentedList processes a single element for commented list rebuilding
+func processElementForCommentedList(elem listElement, index, totalElements int) hclwrite.Tokens {
+	var tokens hclwrite.Tokens
+
+	// Clean leading comments for non-first elements to avoid double-spacing
+	cleanedLeadingComments := elem.LeadingComments
+	if index > 0 {
+		for len(cleanedLeadingComments) > 0 && cleanedLeadingComments[0].Type == hclsyntax.TokenNewline {
+			cleanedLeadingComments = cleanedLeadingComments[1:]
 		}
+	}
+	tokens = append(tokens, cleanedLeadingComments...)
 
-		for i, elem := range elementsCopy {
-			// Clean leading comments to avoid excessive newlines only when there are trailing comments
-			cleanedLeadingComments := elem.LeadingComments
-			if i > 0 && hasComment {
-				// For elements after the first in lists with comments, remove leading newlines to avoid double-spacing
-				// This handles the case where trailing newlines from comma parsing become leading newlines
-				for len(cleanedLeadingComments) > 0 && cleanedLeadingComments[0].Type == hclsyntax.TokenNewline {
-					cleanedLeadingComments = cleanedLeadingComments[1:]
-				}
-			}
-			rebuiltTokens = append(rebuiltTokens, cleanedLeadingComments...)
+	// Separate value and comment tokens
+	valueTokens, commentTokens := separateValueAndCommentTokens(elem.Tokens)
+	tokens = append(tokens, valueTokens...)
 
-			// Separate value tokens and comment tokens from elem.Tokens.
-			var valueTokens hclwrite.Tokens
-			var commentTokens hclwrite.Tokens
-			for _, t := range elem.Tokens { // elem.Tokens is from the original parseSingleElement
-				if t.Type == hclsyntax.TokenComment {
-					commentTokens = append(commentTokens, t)
-				} else {
-					valueTokens = append(valueTokens, t)
-				}
-			}
+	// Add comma if needed
+	if !endsWithComma(valueTokens) && index < totalElements-1 {
+		tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenComma, Bytes: []byte(",")})
+	}
 
-			rebuiltTokens = append(rebuiltTokens, valueTokens...)
+	// Add comment tokens
+	tokens = append(tokens, commentTokens...)
 
-			// Conditionally add structural comma if not the last element
-			// AND valueTokens doesn't already end with a comma.
-			valueEndsWithComma := false
-			if len(valueTokens) > 0 {
-				if valueTokens[len(valueTokens)-1].Type == hclsyntax.TokenComma {
-					valueEndsWithComma = true
-				}
-			}
-			if !valueEndsWithComma && i < len(elementsCopy)-1 {
-				rebuiltTokens = append(rebuiltTokens, &hclwrite.Token{Type: hclsyntax.TokenComma, Bytes: []byte(",")})
-			}
+	// Add newline if no comments (comments typically already have newlines)
+	if len(commentTokens) == 0 {
+		tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+	}
 
-			// Append comment tokens (if any)
-			if len(commentTokens) > 0 {
-				rebuiltTokens = append(rebuiltTokens, commentTokens...)
-			}
+	return tokens
+}
 
-			// For multi-line lists, each element should end with a newline.
-			// If there are comments, they typically already include a newline.
-			// If there are no comments, we need to add a newline.
-			if len(commentTokens) == 0 {
-				rebuiltTokens = append(rebuiltTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
-			}
+// separateValueAndCommentTokens separates an element's tokens into value and comment tokens
+func separateValueAndCommentTokens(tokens hclwrite.Tokens) (valueTokens, commentTokens hclwrite.Tokens) {
+	for _, t := range tokens {
+		if t.Type == hclsyntax.TokenComment {
+			commentTokens = append(commentTokens, t)
+		} else {
+			valueTokens = append(valueTokens, t)
 		}
+	}
+	return
+}
 
-		// After the loop, if elements were processed, ensure the entire list content
-		// ends with a newline before the closing bracket.
-		if len(elementsCopy) > 0 {
-			alreadyEndsInEffectiveNewline := false
-			if rl := len(rebuiltTokens); rl > 0 {
-				// Check the very last token added to rebuiltTokens.
-				// This could be from the last element's own content (value/comment) or an explicit newline.
-				lastBuilderToken := rebuiltTokens[rl-1]
-				if lastBuilderToken.Type == hclsyntax.TokenNewline ||
-					(lastBuilderToken.Type == hclsyntax.TokenComment && bytes.HasSuffix(lastBuilderToken.Bytes, []byte("\n"))) {
-					alreadyEndsInEffectiveNewline = true
-				}
-			}
-			if !alreadyEndsInEffectiveNewline {
-				rebuiltTokens = append(rebuiltTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
-			}
-		} else if len(innerTokens) > 0 { // Empty list, but was originally multi-line.
-			isOriginalMultilineEmpty := false
-			for _, tok := range innerTokens {
-				if tok.Type == hclsyntax.TokenNewline {
-					isOriginalMultilineEmpty = true
-					break
-				}
-			}
-			if isOriginalMultilineEmpty && len(rebuiltTokens) == 1 && rebuiltTokens[0].Type == hclsyntax.TokenOBrack {
-				rebuiltTokens = append(rebuiltTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
-			}
-		}
+// endsWithComma checks if the token list ends with a comma
+func endsWithComma(tokens hclwrite.Tokens) bool {
+	return len(tokens) > 0 && tokens[len(tokens)-1].Type == hclsyntax.TokenComma
+}
 
-		rebuiltTokens = append(rebuiltTokens, tokens[len(tokens)-1]) // Append the closing bracket ']'
-		return rebuiltTokens, true
-		// This is the end of the 'if hasComment' block replacement
-	} // End of 'if hasComment' logic block
+// ensureTrailingNewline ensures the token list ends with a newline if needed
+func ensureTrailingNewline(tokens hclwrite.Tokens) hclwrite.Tokens {
+	if len(tokens) == 0 {
+		return hclwrite.Tokens{}
+	}
 
-	// Default rebuild for lists without comments (or if hasComment is false)
-	return rebuildListTokensFromElements(elementsCopy, innerTokens, tokens[0], tokens[len(tokens)-1]), true
-} // End of trySortSimpleListTokens function
+	lastToken := tokens[len(tokens)-1]
+	if lastToken.Type == hclsyntax.TokenNewline ||
+		(lastToken.Type == hclsyntax.TokenComment && bytes.HasSuffix(lastToken.Bytes, []byte("\n"))) {
+		return hclwrite.Tokens{}
+	}
+
+	return hclwrite.Tokens{&hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")}}
+}
 
 // rebuildListTokensFromElements reconstructs the HCL tokens for a list
 // given the sorted elements, the original inner tokens (for context like multiline),
@@ -252,111 +246,140 @@ func rebuildListTokensFromElements(
 	openingBracket *hclwrite.Token,
 	closingBracket *hclwrite.Token,
 ) hclwrite.Tokens {
-	newInnerTokens := hclwrite.Tokens{}
+	willBeMultiLine := isMultiLineList(sortedElements)
+	newInnerTokens := buildInnerTokensForUncommentedList(sortedElements, willBeMultiLine)
+	isMultiLine := determineMultiLineStatus(newInnerTokens, originalInnerTokens)
 
-	// Check if this will be a multi-line list by looking for newlines in any element
-	willBeMultiLine := false
-	for _, checkElem := range sortedElements {
-		for _, tok := range append(checkElem.LeadingComments, checkElem.Tokens...) {
+	return constructFinalTokenList(newInnerTokens, openingBracket, closingBracket, isMultiLine)
+}
+
+// isMultiLineList checks if the list should be formatted as multi-line based on element content
+func isMultiLineList(elements []listElement) bool {
+	for _, elem := range elements {
+		for _, tok := range append(elem.LeadingComments, elem.Tokens...) {
 			if tok.Type == hclsyntax.TokenNewline {
-				willBeMultiLine = true
-				break
+				return true
 			}
 		}
-		if willBeMultiLine {
-			break
-		}
 	}
+	return false
+}
 
-	for i, elem := range sortedElements {
+// buildInnerTokensForUncommentedList builds the inner token sequence for lists without comments
+func buildInnerTokensForUncommentedList(elements []listElement, willBeMultiLine bool) hclwrite.Tokens {
+	var tokens hclwrite.Tokens
+
+	for i, elem := range elements {
 		// Clean up leading comments for the first element to avoid extra newlines
 		cleanedLeadingComments := elem.LeadingComments
 		if i == 0 && willBeMultiLine {
-			// For the first element in multi-line lists, remove leading newlines
-			for len(cleanedLeadingComments) > 0 && cleanedLeadingComments[0].Type == hclsyntax.TokenNewline {
-				cleanedLeadingComments = cleanedLeadingComments[1:]
-			}
+			cleanedLeadingComments = removeLeadingNewlines(cleanedLeadingComments)
 		}
 
-		// Append leading comments/whitespace first
-		newInnerTokens = append(newInnerTokens, cleanedLeadingComments...)
-		// Append the actual element content tokens
-		newInnerTokens = append(newInnerTokens, elem.Tokens...) // MODIFIED to use elem.Tokens
+		tokens = append(tokens, cleanedLeadingComments...)
+		tokens = append(tokens, elem.Tokens...)
 
-		// Add comma only after the element, except for the last one
-		if i < len(sortedElements)-1 {
-			newInnerTokens = append(newInnerTokens, &hclwrite.Token{Type: hclsyntax.TokenComma, Bytes: []byte(",")})
+		// Add comma between elements (except after the last one)
+		if i < len(elements)-1 {
+			tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenComma, Bytes: []byte(",")})
 		}
 	}
 
-	// Determine if the result should be treated as multi-line
-	isMultiLine := false
-	if len(newInnerTokens) > 0 {
-		for _, tok := range newInnerTokens {
-			if tok.Type == hclsyntax.TokenNewline {
-				isMultiLine = true
-				break
-			}
+	return tokens
+}
+
+// removeLeadingNewlines removes leading newline tokens from a token list
+func removeLeadingNewlines(tokens hclwrite.Tokens) hclwrite.Tokens {
+	for len(tokens) > 0 && tokens[0].Type == hclsyntax.TokenNewline {
+		tokens = tokens[1:]
+	}
+	return tokens
+}
+
+// determineMultiLineStatus determines if the final list should be formatted as multi-line
+func determineMultiLineStatus(newInnerTokens, originalInnerTokens hclwrite.Tokens) bool {
+	// Check new tokens for newlines
+	for _, tok := range newInnerTokens {
+		if tok.Type == hclsyntax.TokenNewline {
+			return true
 		}
-	} else if len(originalInnerTokens) > 0 { // Handle originally multi-line but now empty list
-		// Check if original inner tokens indicated a multi-line structure
-		// (e.g., started or ended with a newline, or contained one)
+	}
+
+	// If no new tokens but had original tokens, check if original was multi-line
+	if len(newInnerTokens) == 0 && len(originalInnerTokens) > 0 {
 		for _, tok := range originalInnerTokens {
 			if tok.Type == hclsyntax.TokenNewline {
-				isMultiLine = true
-				break
+				return true
 			}
 		}
 	}
 
-	// Construct the final token list
-	finalTokens := hclwrite.Tokens{openingBracket} // Start with '['
+	return false
+}
 
-	// Add newline after opening bracket for multi-line lists
-	if isMultiLine && len(newInnerTokens) > 0 {
+// constructFinalTokenList builds the complete token list with proper formatting
+func constructFinalTokenList(innerTokens hclwrite.Tokens, openBracket, closeBracket *hclwrite.Token, isMultiLine bool) hclwrite.Tokens {
+	finalTokens := hclwrite.Tokens{openBracket}
+
+	// Add opening newline for multi-line lists
+	if isMultiLine && len(innerTokens) > 0 {
 		finalTokens = append(finalTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
 	}
 
-	finalTokens = append(finalTokens, newInnerTokens...)
+	finalTokens = append(finalTokens, innerTokens...)
 
-	// Add trailing comma and newline for multi-line lists
-	if isMultiLine && len(newInnerTokens) > 0 {
-		// Add trailing comma
-		// Check if the very last token of newInnerTokens isn't already a comma or a newline that implies a trailing comma was handled by formatting.
-		// For simplicity, we'll add a comma if the last element token isn't a comma.
-		// More robust handling might be needed if elements can themselves end in commas legitimately before this step.
-		lastMeaningfulToken := -1
-		for j := len(newInnerTokens) - 1; j >= 0; j-- {
-			if newInnerTokens[j].Type != hclsyntax.TokenNewline && newInnerTokens[j].Type != hclsyntax.TokenTabs {
-				lastMeaningfulToken = j
-				break
-			}
+	// Add trailing formatting for multi-line lists
+	if isMultiLine {
+		finalTokens = append(finalTokens, addTrailingFormatting(innerTokens)...)
+	}
+
+	finalTokens = append(finalTokens, closeBracket)
+	return finalTokens
+}
+
+// addTrailingFormatting adds trailing comma and newline for multi-line lists
+func addTrailingFormatting(innerTokens hclwrite.Tokens) hclwrite.Tokens {
+	var trailing hclwrite.Tokens
+
+	if len(innerTokens) > 0 {
+		// Add trailing comma if needed
+		if !endsWithMeaningfulComma(innerTokens) {
+			trailing = append(trailing, &hclwrite.Token{Type: hclsyntax.TokenComma, Bytes: []byte(",")})
 		}
 
-		if lastMeaningfulToken != -1 && newInnerTokens[lastMeaningfulToken].Type != hclsyntax.TokenComma {
-			finalTokens = append(finalTokens, &hclwrite.Token{Type: hclsyntax.TokenComma, Bytes: []byte(",")})
-		}
-
-		// Add trailing newline if not already present as the very last token
-		if finalTokens[len(finalTokens)-1].Type != hclsyntax.TokenNewline {
-			finalTokens = append(finalTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
-		}
-	} else if isMultiLine { // Empty multi-line list case like list = [\n]
-		// Ensure at least one newline if it was originally multi-line and now empty
-		hasNewline := false
-		for _, t := range finalTokens {
-			if t.Type == hclsyntax.TokenNewline {
-				hasNewline = true
-				break
-			}
-		}
-		if !hasNewline {
-			finalTokens = append(finalTokens, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
+		// Add trailing newline if needed
+		if !endsWithNewline(trailing, innerTokens) {
+			trailing = append(trailing, &hclwrite.Token{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")})
 		}
 	}
 
-	finalTokens = append(finalTokens, closingBracket) // Append ']'
-	return finalTokens
+	return trailing
+}
+
+// endsWithMeaningfulComma checks if the tokens end with a meaningful comma (ignoring whitespace)
+func endsWithMeaningfulComma(tokens hclwrite.Tokens) bool {
+	for i := len(tokens) - 1; i >= 0; i-- {
+		tok := tokens[i]
+		if tok.Type != hclsyntax.TokenNewline && tok.Type != hclsyntax.TokenTabs {
+			return tok.Type == hclsyntax.TokenComma
+		}
+	}
+	return false
+}
+
+// endsWithNewline checks if either the trailing tokens or the last inner token is a newline
+func endsWithNewline(trailingTokens, innerTokens hclwrite.Tokens) bool {
+	// Check trailing tokens first
+	if len(trailingTokens) > 0 {
+		return trailingTokens[len(trailingTokens)-1].Type == hclsyntax.TokenNewline
+	}
+
+	// Check inner tokens
+	if len(innerTokens) > 0 {
+		return innerTokens[len(innerTokens)-1].Type == hclsyntax.TokenNewline
+	}
+
+	return false
 }
 
 // checkIgnoreDirective checks for a "tfsort:ignore" comment within the initial part of inner list tokens.
