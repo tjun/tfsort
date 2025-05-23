@@ -38,12 +38,34 @@ resource "test" "example" {
 			name: "list attribute values ARE sorted", // List values ARE sorted
 			inputHCL: `
 resource "test" "example" {
-  list = ["a", "b", "c"]
+  list = ["b", "a", "c"]
 }
 `,
 			wantHCL: `
 resource "test" "example" {
   list = ["a", "b", "c"]
+}
+`,
+			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
+		},
+		{
+			name: "preserve comments with list attribute", // List values ARE sorted
+			inputHCL: `
+resource "test" "example" {
+  list = [
+    "b", # b
+    "a", # a
+    "c", # c
+  ]
+}
+`,
+			wantHCL: `
+resource "test" "example" {
+  list = [
+    "a", # a
+    "b", # b
+    "c", # c
+  ]
 }
 `,
 			sortOptions: SortOptions{SortBlocks: true, SortTypeName: true, SortList: true},
@@ -263,7 +285,7 @@ resource "test" "example" {
 			}
 
 			if gotCleanedHCL != wantCleanedHCL {
-				t.Errorf("Sort() output mismatch for test case: %s\nGot:\n%s\n\nWant:\n%s", tc.name, gotCleanedHCL, wantCleanedHCL)
+				t.Errorf("Sort() output mismatch for test case: %s\n", tc.name)
 				if string(gotHCLBytes) != gotCleanedHCL || tc.wantHCL != wantCleanedHCL {
 					t.Logf("Raw Got:\n%s", string(gotHCLBytes))
 					t.Logf("Raw Want (as provided in test case):\n%s", tc.wantHCL)
