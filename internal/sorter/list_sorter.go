@@ -13,14 +13,6 @@ import (
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
 
-type listElement struct {
-	leadingComments hclwrite.Tokens // Comments and whitespace preceding the element
-	tokens          hclwrite.Tokens // The actual content tokens of the element (may include same-line comments)
-	key             []byte          // Primary sort key (derived from tokens)
-	ctyValue        cty.Value       // cty.Value for type-aware comparison (especially numbers)
-	isNumber        bool            // True if ctyValue is a known number type
-}
-
 // SortListValuesInBody recursively finds and sorts simple lists within a body.
 // This function is intended to be called from the main Sort function.
 func SortListValuesInBody(body *hclwrite.Body) {
@@ -105,21 +97,21 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		elemI := elementsCopy[i]
 		elemJ := elementsCopy[j]
 		var result bool
-		if elemI.isNumber && elemJ.isNumber {
-			valI := elemI.ctyValue.AsBigFloat()
-			valJ := elemJ.ctyValue.AsBigFloat()
+		if elemI.IsNumber && elemJ.IsNumber {
+			valI := elemI.CtyValue.AsBigFloat()
+			valJ := elemJ.CtyValue.AsBigFloat()
 			cmpResult := valI.Cmp(valJ)
 			if cmpResult != 0 {
 				result = cmpResult < 0
 			} else {
-				result = bytes.Compare(elemI.key, elemJ.key) == -1
+				result = bytes.Compare(elemI.Key, elemJ.Key) == -1
 			}
-		} else if elemI.isNumber && !elemJ.isNumber {
+		} else if elemI.IsNumber && !elemJ.IsNumber {
 			result = true
-		} else if !elemI.isNumber && elemJ.isNumber {
+		} else if !elemI.IsNumber && elemJ.IsNumber {
 			result = false
 		} else {
-			result = bytes.Compare(elemI.key, elemJ.key) == -1
+			result = bytes.Compare(elemI.Key, elemJ.Key) == -1
 		}
 		return result
 	})
@@ -129,7 +121,7 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		changed = true
 	} else {
 		for i := 0; i < len(elementsCopy); i++ {
-			if !bytes.Equal(originalOrder[i].key, elementsCopy[i].key) {
+			if !bytes.Equal(originalOrder[i].Key, elementsCopy[i].Key) {
 				changed = true
 				break
 			}
@@ -143,7 +135,7 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 	// Determine if special comment handling is needed
 	hasComment := false
 	for _, elem := range elementsCopy {
-		for _, t := range elem.tokens { // MODIFIED TO USE elem.tokens
+		for _, t := range elem.Tokens { // MODIFIED TO USE elem.Tokens
 			if t.Type == hclsyntax.TokenComment {
 				hasComment = true
 				break
@@ -164,12 +156,12 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		}
 
 		for i, elem := range elementsCopy {
-			rebuiltTokens = append(rebuiltTokens, elem.leadingComments...)
+			rebuiltTokens = append(rebuiltTokens, elem.LeadingComments...)
 
-			// Separate value tokens and comment tokens from elem.tokens.
+			// Separate value tokens and comment tokens from elem.Tokens.
 			var valueTokens hclwrite.Tokens
 			var commentTokens hclwrite.Tokens
-			for _, t := range elem.tokens { // elem.tokens is from the original parseSingleElement
+			for _, t := range elem.Tokens { // elem.Tokens is from the original parseSingleElement
 				if t.Type == hclsyntax.TokenComment {
 					commentTokens = append(commentTokens, t)
 				} else {
@@ -216,10 +208,10 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 					// but included for robustness.
 					elementContentEndsWithNewline = true
 				}
-			} else if len(elem.leadingComments) > 0 {
+			} else if len(elem.LeadingComments) > 0 {
 				// Element has no value or line comments, only leading comments (e.g. an empty line, or a commented-out item)
 				// Check if the leading comments themselves ended with a newline.
-				lastToken := elem.leadingComments[len(elem.leadingComments)-1]
+				lastToken := elem.LeadingComments[len(elem.LeadingComments)-1]
 				if lastToken.Type == hclsyntax.TokenNewline ||
 					(lastToken.Type == hclsyntax.TokenComment && bytes.HasSuffix(lastToken.Bytes, []byte("\n"))) {
 					elementContentEndsWithNewline = true
@@ -283,9 +275,9 @@ func rebuildListTokensFromElements(
 	newInnerTokens := hclwrite.Tokens{}
 	for i, elem := range sortedElements {
 		// Append leading comments/whitespace first
-		newInnerTokens = append(newInnerTokens, elem.leadingComments...)
+		newInnerTokens = append(newInnerTokens, elem.LeadingComments...)
 		// Append the actual element content tokens
-		newInnerTokens = append(newInnerTokens, elem.tokens...) // MODIFIED to use elem.tokens
+		newInnerTokens = append(newInnerTokens, elem.Tokens...) // MODIFIED to use elem.Tokens
 
 		// Add comma only after the element, except for the last one
 		if i < len(sortedElements)-1 {
@@ -449,11 +441,11 @@ func parseSingleElement(rawElementTokens hclwrite.Tokens) (*listElement, bool, b
 	sortKeyBytes, ctyVal, isNum, _ := extractPrimaryTokenBytes(finalContentTokens) // Use _ for success flag
 
 	elem := &listElement{
-		leadingComments: leadingCommentsAccumulator,
-		tokens:          finalContentTokens, // Store the processed content tokens
-		key:             sortKeyBytes,
-		ctyValue:        ctyVal,
-		isNumber:        isNum,
+		LeadingComments: leadingCommentsAccumulator,
+		Tokens:          finalContentTokens, // Store the processed content tokens
+		Key:             sortKeyBytes,
+		CtyValue:        ctyVal,
+		IsNumber:        isNum,
 	}
 	isEmpty := len(finalContentTokens) == 0
 	return elem, isEmpty, true
