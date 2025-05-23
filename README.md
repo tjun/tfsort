@@ -213,26 +213,21 @@ Notice that `# Group B` moved with `"bravo"`, and the original grouping is lost 
 If you need to maintain specific groups of elements or a precise manual order within a list:
 
 1.  **Use `# tfsort:ignore`:** Add the `# tfsort:ignore` comment immediately after the opening bracket `[` to disable sorting for the entire list.
-2.  **Split the List:** Define multiple separate lists, potentially using local variables, and manage their contents independently. For example:
+2.  **Split the List:** Define multiple separate lists and concat them. For example:
 
     ```hcl
-    locals {
-      group_a = [
-        "charlie",
-        "alpha",
+    foods = concat(
+      [ #fruits
+        "apple",
+        "banana",
+        "cherry",
+      ],
+      [ #vegetables
+        "broccoli",
+        "carrot",
+        "tomato",
       ]
-      group_b = [
-        "bravo",
-      ]
-    }
-
-    resource "something" "example" {
-      # Use concat or other functions as needed
-      combined_list = concat(local.group_a, local.group_b)
-      # Or use the groups separately
-      list_a = local.group_a
-      list_b = local.group_b
-    }
+    )
     ```
 
     In this case, `tfsort` would sort the elements within `local.group_a` and `local.group_b` individually, but the `concat` function would preserve the group order in `combined_list`.
