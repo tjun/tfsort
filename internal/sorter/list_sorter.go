@@ -18,55 +18,59 @@ func SortListValuesInBody(body *hclwrite.Body) {
 		return
 	}
 
+	// Process attributes in consistent order to ensure deterministic output
 	attrs := body.Attributes()
 	attrNames := make([]string, 0, len(attrs))
 	for name := range attrs {
 		attrNames = append(attrNames, name)
 	}
-	sort.Strings(attrNames) // Process attributes in a consistent order
+	sort.Strings(attrNames)
 
+	// Check each attribute's expression for list literals to sort
 	for _, name := range attrNames {
 		attr := attrs[name]
 		originalExprTokens := attr.Expr().BuildTokens(nil)
 
-		// Recursively find and sort lists within the expression tokens
-		newExprTokens, wasModified := sortListsInTokens(originalExprTokens)
+		newExprTokens, wasModified := findAndSortListsInExpression(originalExprTokens)
 
-		if wasModified { // Check if any modification happened
+		if wasModified {
 			body.SetAttributeRaw(name, newExprTokens)
 		}
 	}
 
-	// Recursively sort lists within nested blocks
+	// Recursively process nested blocks (resource, module, etc.)
 	for _, block := range body.Blocks() {
-		SortListValuesInBody(block.Body()) // Recurse
+		SortListValuesInBody(block.Body())
 	}
 }
 
-// sortListsInTokens recursively finds list literals [...] and other structures within a token sequence and sorts them.
-// Returns the potentially modified tokens and a boolean indicating if any modification occurred.
-func sortListsInTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
-	// 1. Check if it's a simple list literal
+// findAndSortListsInExpression recursively searches for and sorts list literals within HCL expression tokens.
+// Handles simple lists [1, 2, 3], toset() calls, and lists nested inside function calls like concat().
+// Returns the modified tokens and true if any lists were sorted.
+func findAndSortListsInExpression(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
+	// Strategy 1: Handle simple list literals like [1, 2, 3] or ["a", "b"]
 	listTokens, isListLiteral := checkSimpleListLiteral(tokens)
 	if isListLiteral {
-		return trySortSimpleListTokens(listTokens)
+		return sortSingleListIfPossible(listTokens)
 	}
 
-	// 2. Check if it's a toset([...]) call
+	// Strategy 2: Handle toset([...]) function calls specifically
 	listTokensInsideToset, isTosetList := checkTosetListCall(tokens)
 	if isTosetList {
-		sortedInnerListTokens, listWasSorted := trySortSimpleListTokens(listTokensInsideToset)
+		sortedInnerListTokens, listWasSorted := sortSingleListIfPossible(listTokensInsideToset)
 		if listWasSorted {
 			return buildTosetCallTokens(sortedInnerListTokens), true
 		}
-		return tokens, false // List inside toset was not sorted
+		return tokens, false
 	}
 
-	// 3. Check for list literals inside function call arguments
-	return sortListsInFunctionCall(tokens)
+	// Strategy 3: Handle lists nested in other function calls like concat([...], [...])
+	return findAndSortListsInFunctionCalls(tokens)
 }
 
-func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
+// sortSingleListIfPossible attempts to sort a single list literal, handling various comment styles.
+// Returns the sorted tokens and true if sorting was performed.
+func sortSingleListIfPossible(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 	if !isValidListStructure(tokens) {
 		return tokens, false
 	}
@@ -76,34 +80,39 @@ func trySortSimpleListTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 		return tokens, false
 	}
 
-	// Check if we have bracket-level comments first
-	bracketComments, elementTokens := extractBracketLevelComments(innerTokens)
+	// Detect bracket-level comments like "[ #comment" vs element-level comments
+	bracketComments, elementTokens := separateBracketCommentsFromElements(innerTokens)
 
-	// Use original tokens if no bracket comments found
+	// Process either cleaned element tokens or original tokens based on comment type
 	tokensToProcess := innerTokens
 	if len(bracketComments) > 0 {
 		tokensToProcess = elementTokens
 	}
 
+	// Parse individual list elements and check if sorting is worthwhile
 	elements, ok := extractSimpleListElements(tokensToProcess)
 	if !ok || len(elements) <= 1 {
-		return tokens, false
+		return tokens, false // Not sortable or too few elements
 	}
 
+	// Perform the actual sorting
 	sortedElements, hasChanged := sortListElements(elements)
 	if !hasChanged {
-		return tokens, false
+		return tokens, false // No changes needed
 	}
 
-	// Choose rebuild strategy based on whether we have bracket comments
+	// Reconstruct the list using the appropriate formatting strategy
 	if len(bracketComments) > 0 {
-		return rebuildListWithBracketComments(sortedElements, tokens[0], tokens[len(tokens)-1], bracketComments), true
+		// Special handling for bracket-level comments with trailing commas
+		return assembleListWithBracketComments(sortedElements, tokens[0], tokens[len(tokens)-1], bracketComments), true
 	}
 
 	if hasComments(sortedElements) {
+		// Standard comment handling for element-level comments
 		return rebuildCommentedListTokens(sortedElements, tokens[0], tokens[len(tokens)-1]), true
 	}
 
+	// Simple list without comments
 	return rebuildListTokensFromElements(sortedElements, tokensToProcess, tokens[0], tokens[len(tokens)-1]), true
 }
 
@@ -657,9 +666,9 @@ func buildTosetCallTokens(sortedListTokens hclwrite.Tokens) hclwrite.Tokens {
 	return finalTokens
 }
 
-// sortListsInFunctionCall recursively searches for list literals inside function call arguments
-// and sorts any that are found. Returns modified tokens and whether any changes were made.
-func sortListsInFunctionCall(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
+// findAndSortListsInFunctionCalls recursively searches for list literals inside function call arguments
+// like concat([...], [...]) and sorts any that are found. Returns modified tokens and whether any changes were made.
+func findAndSortListsInFunctionCalls(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 	anySorted := false
 	result := make(hclwrite.Tokens, len(tokens))
 	copy(result, tokens)
@@ -686,7 +695,7 @@ func sortListsInFunctionCall(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 			// If we found a complete bracket pair, try to sort it as a list
 			if level == 0 {
 				listTokens := result[i:j]
-				sortedListTokens, wasSorted := trySortSimpleListTokens(listTokens)
+				sortedListTokens, wasSorted := sortSingleListIfPossible(listTokens)
 				if wasSorted {
 					// Replace the tokens in result
 					newResult := make(hclwrite.Tokens, 0, len(result)-len(listTokens)+len(sortedListTokens))
@@ -707,10 +716,10 @@ func sortListsInFunctionCall(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 	return result, anySorted
 }
 
-// extractBracketLevelComments separates comments that should stay with the opening bracket
-// from tokens that should be processed as list elements.
-// Comments appearing on the same line as opening bracket (no newline before) are bracket-level.
-func extractBracketLevelComments(innerTokens hclwrite.Tokens) (bracketComments hclwrite.Tokens, elementTokens hclwrite.Tokens) {
+// separateBracketCommentsFromElements distinguishes between bracket-level comments like "[ #comment"
+// and element-level comments that appear before individual list items.
+// Bracket-level comments appear immediately after the opening bracket without a newline.
+func separateBracketCommentsFromElements(innerTokens hclwrite.Tokens) (bracketComments hclwrite.Tokens, elementTokens hclwrite.Tokens) {
 	if len(innerTokens) == 0 {
 		return nil, innerTokens
 	}
@@ -748,12 +757,13 @@ func extractBracketLevelComments(innerTokens hclwrite.Tokens) (bracketComments h
 	return bracketComments, elementTokens
 }
 
-// rebuildListWithBracketComments rebuilds a list with bracket-level comments
-func rebuildListWithBracketComments(elements []listElement, openBracket, closeBracket *hclwrite.Token, bracketComments hclwrite.Tokens) hclwrite.Tokens {
+// assembleListWithBracketComments reconstructs a list that has bracket-level comments like "[ #comment".
+// Ensures proper formatting with trailing commas and multi-line structure.
+func assembleListWithBracketComments(elements []listElement, openBracket, closeBracket *hclwrite.Token, bracketComments hclwrite.Tokens) hclwrite.Tokens {
 	// Create modified opening bracket that includes space and comment
 	modifiedOpenBracket := &hclwrite.Token{
 		Type:  openBracket.Type,
-		Bytes: buildOpenBracketWithComments(openBracket.Bytes, bracketComments),
+		Bytes: mergeBracketWithComments(openBracket.Bytes, bracketComments),
 	}
 
 	result := hclwrite.Tokens{modifiedOpenBracket}
@@ -764,7 +774,7 @@ func rebuildListWithBracketComments(elements []listElement, openBracket, closeBr
 	// Add each element with proper formatting
 	for i, elem := range elements {
 		// Use cleaned element processing - remove any leading newlines from the element
-		cleanedElem := cleanElementLeadingWhitespace(elem)
+		cleanedElem := stripExcessiveLeadingWhitespace(elem)
 		result = append(result, processElementForCommentedListWithTrailingCommas(cleanedElem, i, len(elements))...)
 
 		// Add newline after each element for multi-line formatting
@@ -778,8 +788,9 @@ func rebuildListWithBracketComments(elements []listElement, openBracket, closeBr
 	return result
 }
 
-// buildOpenBracketWithComments creates bracket bytes that include space and comments
-func buildOpenBracketWithComments(bracketBytes []byte, comments hclwrite.Tokens) []byte {
+// mergeBracketWithComments combines opening bracket "[" with bracket-level comments to create "[ #comment".
+// Strips trailing newlines from comments since they'll be added separately.
+func mergeBracketWithComments(bracketBytes []byte, comments hclwrite.Tokens) []byte {
 	result := make([]byte, len(bracketBytes))
 	copy(result, bracketBytes)
 
@@ -800,8 +811,8 @@ func buildOpenBracketWithComments(bracketBytes []byte, comments hclwrite.Tokens)
 	return result
 }
 
-// cleanElementLeadingWhitespace removes excessive leading whitespace from an element
-func cleanElementLeadingWhitespace(elem listElement) listElement {
+// stripExcessiveLeadingWhitespace removes extra leading newlines from an element while preserving meaningful comments.
+func stripExcessiveLeadingWhitespace(elem listElement) listElement {
 	cleanedLeading := elem.LeadingComments
 
 	// Remove leading newlines but preserve meaningful comments
