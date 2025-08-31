@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/urfave/cli/v3 v3.4.1
-	github.com/zclconf/go-cty v1.16.3
+	github.com/zclconf/go-cty v1.16.4
 )
 
 require (
