@@ -10,7 +10,9 @@
   schedule: [
     'after 09:00 and before 18:00 on Monday to Friday',
   ],
-  dependencyDashboard: true,
+  dependencyDashboard: {
+    enabled: true,
+  },
   assignees: [
     'tjun',
   ],
